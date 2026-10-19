@@ -51,6 +51,39 @@ firmware there are no save states.
   `firmware/handheld/src/core/on_demand.rs`, plus the `on_demand`, `file` and `file_slots` keys in `core/info.rs`
   and `core/settings.rs`. Build it like the stock one (ESP-IDF 5.4.3, `cargo build --release --features rev4`).
 
+## How the save states work in my firmware
+
+Eli's firmware only moves files between the card and the core at the start (the rom, the `.sav`) and at the exit
+(the `.sav` back). A save state has to move while the game runs, so I added "on demand" files to the firmware
+(`firmware/handheld/src/core/on_demand.rs`). It is generic, any core on the SD card can use it, only with json.
+
+This is what happens when you press Save State in the menu:
+
+1. The firmware sends the core the normal file command `FILE_READ_START` for the State file (file 2 for the Lynx).
+2. The game is already paused, because the menu is open. The core lets only its save state engine (the MiSTer
+   one) run, which writes the whole machine into SDRAM, and it answers with the size of the state. If it answers 0, the core has no save states and you get "Not supported by
+   the core".
+3. The firmware reads the state from the core over SPI and writes it next to the rom as `<rom>.ss0` to `.ss3`,
+   depending on the slot. It first writes a temporary file and renames it only at the end, so a cut in the middle
+   does not break the old state.
+4. `FILE_READ_END`, and the game goes on.
+
+Load State is the same the other way: the firmware writes the `.ssN` file into the core's SDRAM between
+`FILE_WRITE_START` and `FILE_WRITE_END`, and at `FILE_WRITE_END` the core restores the machine from it. The
+firmware waits at most 3.5 seconds for the core at every step, and shows a message if something fails.
+
+In the json files it looks like this (see `sdcard/savestate-firmware/`):
+
+- `files.json`: a file with `"on_demand": true` and the core's address for it. The firmware does not load or save
+  it at start and exit, only when you ask.
+- `settings.json`: a list with `"file_slots": 2` (the State Slot, the slot is the number in `.ssN`, and the
+  firmware puts a `*` next to the slots that already have a file), and two actions with `"file": 2`, one of them
+  with `"load": true` (Save State and Load State).
+
+If you want save states in your own firmware, these are the parts to take: `core/on_demand.rs`, the `on_demand`
+flag and the `file` / `file_slots` keys in `core/info.rs`, and the few lines in `core/settings.rs` that send these
+actions to `on_demand.rs` instead of writing them to the core.
+
 ## Building the bitstream
 
 What you need: Java 17, Python 3 with `edalize==0.6.7` (see `fpga/framework/requirements.txt`) and Vivado (I use
@@ -84,6 +117,10 @@ I did not try the Lynx with `build_core.py`.
 - `fpga/src/main/scala/platform/handheld/LcdAspectScaler.scala`, `lib/video/PolyphaseScaler.scala`,
   `net/gamebub/framework/interface/VideoScalerV0.scala`: the scaler.
 - `sdcard/`: the files for the SD card.
+- `scripts/rev2/`: my scripts. `make_vivado_bundle.py` makes the Vivado project for a core and a board,
+  `pack_vivado_bundles.py` packs several of them to build at the same time on Windows, `finish_bitstream.py` adds the
+  git revision to a bitstream and makes the compressed `.bit.hs`, `lynx_test_sim.sh` is a simulation of the Lynx
+  core, `make_logo.py` makes the logo. The other scripts in `scripts/` are Eli's.
 
 ## License and credits
 
