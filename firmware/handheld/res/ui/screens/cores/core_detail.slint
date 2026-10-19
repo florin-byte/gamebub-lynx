@@ -1,0 +1,81 @@
+import { Theme } from "../../theme.slint";
+import { Button } from "../../components/button.slint";
+
+export component CoreDetails {
+    in property <string> core-name;
+    in property <string> core-author;
+
+    callback on-cancel();
+    callback on-run();
+
+    forward-focus: btn-core-run;
+
+    i-focus-scope := FocusScope {
+
+        key-pressed(event) => {
+            if (event.text == "b") {
+                on-cancel();
+                accept
+            } else {
+                reject
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            Rectangle { }
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 8px;
+                width: 100%;
+
+                Text {
+                    color: Theme.fg;
+                    width: 100px;
+                    horizontal-alignment: right;
+                    font-weight: 800;
+                    text: ( //
+                            "Name:" + //
+                            "\nAuthor:" //
+                        );
+                }
+
+                Text {
+                    color: Theme.fg;
+                    width: 100%;
+                    horizontal-alignment: left;
+                    text: ( //
+                            "\{core-name}" + //
+                            "\n\{core-author}" //
+                        );
+                }
+            }
+
+            Rectangle { }
+
+            btn-core-run := Button {
+                text: "Run Core";
+                on-down => {
+                    btn-back.focus();
+                    accept
+                }
+                on-pressed => {
+                    on-run();
+                }
+            }
+
+            btn-back := Button {
+                text: "Back";
+                on-up => {
+                    btn-core-run.focus();
+                    accept
+                }
+                on-pressed => {
+                    on-cancel();
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,42 @@
+// UI colors. The defaults are the light theme; `apply_theme()` in the firmware sets all of them
+// (and the std-widgets color scheme, which colors Text elements without an explicit color).
+// They are plain in-out properties set from Rust rather than computed bindings, so that every
+// dependent element is marked dirty when the theme changes.
+export global Theme {
+    // Window background
+    in-out property <color> bg: #E8E8E8;
+    // Popups, menus, checkboxes, focused buttons
+    in-out property <color> surface: #FFFFFF;
+    // Disabled buttons
+    in-out property <color> surface-alt: #EEEEEE;
+    // Text that used the style's default color. The Game Bub theme sets it to the std-widgets
+    // foreground itself (see set-color-scheme in main.slint), so that text looks exactly as before.
+    in-out property <brush> fg: #000000E6;
+    // Text with an explicit color
+    in-out property <color> text: #000000;
+    // Unselected / inactive text, checkbox marks
+    in-out property <color> text-dim: #808080;
+    // Secondary text (core author) and subpage arrows
+    in-out property <color> text-secondary: #666666;
+    // Borders, scrollbars, progress bars
+    in-out property <color> border: #000000;
+    // Borders of inactive buttons
+    in-out property <color> border-dim: #808080;
+    // Selected list item
+    in-out property <color> highlight: #BBBBBB;
+    // Status bar text (Game Bub: the std-widgets text color, like fg)
+    in-out property <brush> status-fg: #000000E6;
+    // Status bar background
+    in-out property <color> status-bg: #CCCCCC;
+    // Icons and the volume / brightness level
+    in-out property <color> icon: #333333;
+    // Main menu logo: face and shadow
+    in-out property <color> logo-face: #810F97;
+    in-out property <color> logo-shadow: #5B0B6A;
+    // Volume / brightness level
+    in-out property <color> level: #333333;
+    // Volume / brightness icon
+    in-out property <color> icon-dim: #AAAAAA;
+    // Volume / brightness track
+    in-out property <color> track: #D3D3D3;
+}

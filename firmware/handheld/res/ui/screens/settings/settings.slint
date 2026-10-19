@@ -1,0 +1,59 @@
+import { Global, ScreenId, Backend } from "../../common.slint";
+import { ScreenBase } from "../../components/screen.slint";
+import { SettingType, SettingValue, SettingEntry } from "types.slint";
+import { SettingsListView } from "components.slint";
+import { ControlHint } from "../../components/control_hint.slint";
+
+export component SettingsScreen inherits ScreenBase {
+    title: "Settings";
+    forward-focus: list;
+
+    in property <[SettingEntry]> entries: Backend.settings;
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == "b") {
+                // If there's no page to go back to, go to the main menu.
+                if !Backend.settings-back() {
+                    Global.set-screen(ScreenId.MainMenu);
+                }
+                accept
+            } else {
+                reject
+            }
+        }
+
+        key-released(event) => {
+            if event.text == "Home" && !Global.home-consumed {
+                Global.set-screen(ScreenId.MainMenu);
+                accept
+            } else {
+                reject
+            }
+        }
+
+        VerticalLayout {
+            height: 100%;
+            spacing: 2px;
+
+            list := SettingsListView {
+                model: entries;
+                focus-item <=> Backend.settings-index;
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                ControlHint {
+                    label: "Back";
+                    button: "b";
+                }
+
+                ControlHint {
+                    label: "Select";
+                    button: "a";
+                }
+            }
+        }
+    }
+}

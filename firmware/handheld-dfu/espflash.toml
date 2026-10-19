@@ -1,0 +1,17 @@
+[idf]
+partition_table = "../handheld/partitions.csv"
+
+# Normally, we'd set flash.mode = qio to flash with QIO, and run
+# with QIO (greatly increases speed over the DIO default).
+# However, this is currently broken in espflash (3.2.0) for
+# the esp32-s3 (https://github.com/esp-rs/espflash/issues/657).
+# Instead, we've pre-built a QIO-capable bootloader,
+# and we just tell espflash to use that. We don't get the
+# flashing speed benefits of QIO, but we do get the runtime speed
+# benefits.
+# flash.mode = "qio"
+bootloader = "../handheld/bootloader.bin"
+
+[flash]
+size = "8MB"
+frequency = "80MHz"

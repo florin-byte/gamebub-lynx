@@ -1,0 +1,108 @@
+import { Theme } from "../../theme.slint";
+import { Backend } from "../../common.slint";
+import { ListViewBase } from "../../components/list_view.slint";
+import { ControlHint } from "../../components/control_hint.slint";
+import { CoreListEntry } from "types.slint";
+import { ScrollingText } from "../../components/scrolling_text.slint";
+
+component CoreListItem inherits HorizontalLayout {
+    in property <CoreListEntry> core;
+    in property <bool> is-selected;
+    padding: 2px;
+    spacing: 6px;
+
+    // On a 240 px wide UI (rev 1/2) 160 + 80 px of minimum widths don't fit, which pushed the
+    // author out of the list; smaller minimums keep both columns visible.
+    ScrollingText {
+        text: core.core-name;
+        // Scroll the name and author of the selected core if they don't fit.
+        active: is-selected;
+        min-width: 120px;
+        horizontal-stretch: 2.0;
+    }
+
+    ScrollingText {
+        text: core.core-author;
+        text-color: Theme.text-secondary;
+        align: TextHorizontalAlignment.right;
+        active: is-selected;
+        min-width: 60px;
+        horizontal-stretch: 1.0;
+    }
+}
+
+
+export component CoreList {
+    in property <[CoreListEntry]> cores;
+    in property <bool> is-loading: cores.length == 0;
+
+    callback on-cancel();
+    callback on-core-selected(/* selected-item */ int);
+
+    forward-focus: i-list;
+
+    // Loading box
+    if is-loading: Rectangle {
+        background: Theme.surface;
+        border-color: Theme.border;
+        border-width: 1px;
+        width: i-layout.min-width;
+        height: i-layout.min-height;
+
+        i-layout := VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+            Text {
+                color: Theme.fg;
+                horizontal-alignment: center;
+                text: "Loading...";
+            }
+        }
+    }
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (is-loading) {
+                reject
+            } else if (event.text == "b") {
+                on-cancel();
+                accept
+            } else {
+                reject
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            i-list := ListViewBase {
+                num-items: cores.length;
+                wrap: true;
+                focus-item <=> Backend.core-list-index;
+
+                for item[index] in cores: child-items := CoreListItem {
+                    core: item;
+                    is-selected: index == i-list.focus-item;
+                }
+
+                on-item-selected(i) => {
+                    on-core-selected(i);
+                }
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                ControlHint {
+                    label: "Back";
+                    button: "b";
+                }
+
+                ControlHint {
+                    label: "Select";
+                    button: "a";
+                }
+            }
+        }
+    }
+}

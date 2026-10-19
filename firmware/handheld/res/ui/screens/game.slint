@@ -1,0 +1,117 @@
+import { Theme } from "../theme.slint";
+import { Global, ScreenId, Backend } from "../common.slint";
+import { ScreenBase } from "../components/screen.slint";
+import { Button } from "../components/button.slint";
+import { ButtonList } from "../components/button_list.slint";
+import { CoreSettingList } from "cores/core_settings.slint";
+import { CoreSettingType } from "cores/types.slint";
+
+export component GameScreen inherits ScreenBase {
+    private property <bool> menu-open: false;
+    private property <bool> settings-open: false;
+    forward-focus: i-focus-scope;
+
+    // /** todo: dev remove */
+    // width: 240px;
+    // height: 160px;
+    // init => {
+    //     settings-open = true;
+    //     i-settings.focus();
+    // }
+
+    protected function set-menu-open(open: bool) {
+        Global.ui-status-bar = open;
+        Backend.game-set-focused(!open);
+        self.menu-open = open;
+        if (menu-open) {
+            i-list.focus();
+        } else {
+            settings-open = false;
+            i-focus-scope.focus();
+        }
+    }
+
+    i-focus-scope := FocusScope {
+        key-released(event) => {
+            if (event.text == "Home" || event.text == "h") && !Global.home-consumed {
+                set-menu-open(!root.menu-open);
+            }
+            if (event.text == "Power") {
+                set-menu-open(true);
+            }
+            if event.text == "b" && settings-open {
+                settings-open = false;
+                i-list.focus();
+            }
+            reject
+        }
+
+        menu := Rectangle {
+            visible: menu-open;
+            background: Theme.surface;
+            border-color: Theme.border;
+            border-width: 1px;
+            width: i-list.min-width + 20px;
+            height: i-list.min-height;
+
+            i-list := ButtonList {
+                items: ["Return", "Settings", "Exit Core"];
+                on-selected(item) => {
+                    if (item == 0) {
+                        root.set-menu-open(false);
+                    } else if (item == 1) {
+                        Backend.game-settings-load();
+                        root.settings-open = true;
+                    } else if (item == 2) {
+                        Backend.game-exit();
+                    }
+                }
+            }
+        }
+
+        settings := Rectangle {
+            visible: settings-open;
+            background: Theme.surface;
+            border-color: Theme.border;
+            border-width: 1px;
+            x: 32px;
+            y: 32px;
+            width: root.width - 64px;
+            height: root.height - 64px;
+
+            if settings-open: CoreSettingList {
+                x: 2px;
+                y: 2px;
+                width: parent.width - 4px;
+                height: parent.height - 4px;
+                init => {
+                    self.focus();
+                }
+            }
+        }
+
+        if Backend.core-is-loading:  Rectangle {
+            background: Theme.surface;
+            border-color: Theme.border;
+            border-width: 1px;
+            width: i-loading-layout.min-width;
+            height: i-loading-layout.min-height;
+
+            i-loading-layout := VerticalLayout {
+                padding: 8px;
+                spacing: 4px;
+                i-text := Text {
+                    color: Theme.fg;
+                    horizontal-alignment: center;
+                    text: "Loading...";
+                }
+
+                Rectangle {
+                    background: Theme.border;
+                    width: Backend.core-progress * i-text.min-width;
+                    height: 2px;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,148 @@
+import { Theme } from "../../theme.slint";
+import { Backend, Global } from "../../common.slint";
+import { FileListView } from "../../components/file_list.slint";
+import { ControlHint } from "../../components/control_hint.slint";
+
+export component CoreFileSelect {
+    private property <bool> has-error: Backend.core-file-select-error != "";
+
+    callback on-cancel();
+
+    forward-focus: list;
+
+    // TODO: correctly label new item when the list changes
+
+    // Hack to call set-current-item when the backend forces a new item.
+    private property <int> _selected-index: Backend.core-file-select-index;
+    changed _selected-index => {
+        list.set-current-item(Backend.core-file-select-index);
+    }
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (Backend.core-file-select-is-loading) {
+                accept
+            } else if (has-error) {
+                if (event.text == "a" || event.text == "b") {
+                    Backend.core-file-select-error = "";
+                    list.set-current-item(Backend.core-file-select-index);
+                }
+                accept
+            } else if (event.text == "b" && !event.repeat) {
+                Backend.core-file-select-up();
+                accept
+            } else {
+                reject
+            }
+        }
+        key-released(event) => {
+            if (event.text == "Home" && !Global.home-consumed) {
+                on-cancel();
+                accept
+            } else {
+                reject
+            }
+        }
+        VerticalLayout {
+            height: 100%;
+            spacing: 2px;
+
+            Text {
+                color: Theme.fg;
+                text: Backend.core-file-select-path;
+            }
+
+            Rectangle {
+                private property <length> scrollbar-width: 2px;
+                private property <bool> has-scrollbar: list.viewport-height > list.height;
+                border-width: 1px;
+                border-color: Theme.border;
+
+                list := FileListView {
+                    x: 0px;
+                    width: scroll-bar.x;
+                    model: Backend.core-file-select-list;
+                    wrap: true;
+                    disabled: Backend.core-file-select-is-loading || has-error;
+                    on-item-selected(i) => {
+                        Backend.core-file-select-index = i;
+                        Backend.core-file-select-selected(i);
+                    }
+                    current-item-changed(i) => {
+                        // TODO
+                    }
+                }
+
+                scroll-bar := Rectangle {
+                    visible: has-scrollbar;
+                    x: parent.width - self.width - 2px;
+                    y: 2px;
+                    width: scrollbar-width;
+                    height: parent.height - 4px;
+                    inner := Rectangle {
+                        y: (-list.viewport-y / list.viewport-height) * parent.height;
+                        width: 100%;
+                        height: (list.height / list.viewport-height) * parent.height;
+                        background: Theme.border;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                ControlHint {
+                    label: "Back";
+                    button: "home";
+                }
+
+                ControlHint {
+                    label: "Up";
+                    button: "b";
+                }
+
+                ControlHint {
+                    label: "Select";
+                    button: "a";
+                }
+            }
+        }
+    }
+
+    if Backend.core-file-select-is-loading:  Rectangle {
+        background: Theme.surface;
+        border-color: Theme.border;
+        border-width: 1px;
+        width: i-layout.min-width;
+        height: i-layout.min-height;
+
+        i-layout := VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+            i-text := Text {
+                color: Theme.fg;
+                horizontal-alignment: center;
+                text: "Loading...";
+            }
+        }
+    }
+
+    if has-error: Rectangle {
+        background: Theme.surface;
+        border-color: Theme.border;
+        border-width: 1px;
+        width: min(self.preferred-width, parent.width - 16px);
+        height: min(self.preferred-height, parent.height - 32px);
+
+        i-error-layout := VerticalLayout {
+            padding: 8px;
+            spacing: 4px;
+            Text {
+                color: Theme.fg;
+                horizontal-alignment: center;
+                text: Backend.core-file-select-error;
+                overflow: elide;
+            }
+        }
+    }
+}

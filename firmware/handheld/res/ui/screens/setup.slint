@@ -1,0 +1,324 @@
+import { Theme } from "../theme.slint";
+import { Global, ScreenId, Backend } from "../common.slint";
+import { ScreenBase } from "../components/screen.slint";
+import { Button } from "../components/button.slint";
+import { ControlHint } from "../components/control_hint.slint";
+import { ScrollView } from "../components/scroll_view.slint";
+
+component ControlsPage inherits Rectangle {
+    in property <int> step;
+    private property <color> highlight: #761C92;
+
+    private property <int> tick: 0;
+    private property <bool> anim: mod(tick, 5) < 3;
+
+    Timer {
+        interval: 0.2s;
+        triggered => {
+            tick = mod(tick + 1, 10);
+        }
+    }
+
+    Image {
+        source: @image-url("../../device.png");
+        x: (50% * root.width) - (self.width / 2);
+        y: (50% * root.height) - (self.height / 2);
+        // width: 198px * 1.5;
+        image-rendering: pixelated;
+        colorize: Theme.text;
+
+        if step == 0: Rectangle {
+            background: highlight;
+            width: 8px;
+            height: 8px;
+            x: 181px;
+            y: 30px;
+            border-radius: 3px;
+            visible: anim;
+        }
+
+        if step == 1: Rectangle {
+            background: highlight;
+            width: 8px;
+            height: 8px;
+            x: 173px;
+            y: 38px;
+            border-radius: 3px;
+            visible: anim;
+        }
+
+        if step == 2: Rectangle {
+            background: highlight;
+            width: 4px;
+            height: 2px;
+            x: 135px;
+            y: 1px;
+            visible: anim;
+        }
+
+        if step == 3 || step == 5: Rectangle {
+            background: highlight;
+            width: 5px;
+            height: 5px;
+            x: 29px;
+            y: 68px;
+            border-radius: 3px;
+            visible: step == 5 || anim;
+        }
+        if step == 4 || step == 5: Rectangle {
+            Rectangle {
+                background: highlight;
+                width: 6px;
+                height: 2px;
+                x: 145px;
+                y: 1px;
+                visible: tick >= 0 && tick < 4;
+            }
+
+            Rectangle {
+                background: highlight;
+                width: 6px;
+                height: 2px;
+                x: 155px;
+                y: 1px;
+                visible: tick >= 5 && tick < 9;
+            }
+        }
+    }
+
+    Image {
+        source: @image-url("../../logo.png");
+        x: (50% * root.width) - (self.width / 2);
+        y: (50% * root.height) - (self.height / 2);
+        // height: 12px * 1.5;
+        image-rendering: pixelated;
+    }
+
+    Rectangle {
+        y: 24px;
+        height: self.min-height;
+
+        if step == 0: Text {
+            color: Theme.fg;
+            text: "Press to Confirm";
+        }
+
+        if step == 1: Text {
+            color: Theme.fg;
+            text: "Press to go Back";
+        }
+
+        if step == 2: Text {
+            color: Theme.fg;
+            text: "Press to open Power menu";
+        }
+
+        if step == 3: Text {
+            color: Theme.fg;
+            text: "Press to go Home";
+        }
+
+        if step == 4: Text {
+            color: Theme.fg;
+            text: "Press to adjust volume";
+        }
+
+        if step == 5: Text {
+            color: Theme.fg;
+            text: "Press Home + Volume to adjust brightness";
+        }
+    }
+
+    ControlHint {
+        label: "Continue";
+        button: "a";
+        x: root.width - self.width - 8px;
+        y: root.height - self.height - 8px;
+    }
+}
+
+component LegalPage inherits Rectangle {
+    forward-focus: i-focus-scope;
+
+    VerticalLayout {
+        spacing: 2px;
+
+        Text {
+            color: Theme.fg;
+            text: "Legal & Regulatory Information";
+            font-weight: 800;
+        }
+
+        i-view := ScrollView {
+            scroll-rate: 16px;
+
+            VerticalLayout {
+                spacing: 16px;
+                padding: 2px;
+                alignment: start;
+
+                Text {
+                    color: Theme.fg;
+                    width: 100%;
+                    text: "Game Bub™ is a trademark of Second Bedroom LLC. All rights reserved. All other trademarks are the property of their respective owners.\n\nGame Bub is open-source: the software is licensed under GPLv3, and the hardware and gateware is licensed under CERN-OHL-S.\nSource code is available on the Game Bub website: gamebub.net\n\nGame Bub is built on top of numerous open-source libraries and components. For a complete listing including licenses, please see the User Guide at docs.gamebub.net. \n\nPlease note that while Game Bub is designed to be open and extensible, unofficial modifications to the hardware or software are performed at your own risk. Such changes may cause the device to behave in unintended ways, void your legal authority to operate the equipment, or lead to permanent hardware damage. The manufacturer’s warranty does not cover damage due to unofficial modifications.\n\nManufacturer: Second Bedroom LLC\nContact: support@gamebub.net\nProduct Model: BUB-HANDHELD-01\nContains FCC ID: 2AC7Z-ESPS3MINI1\n\nThis device complies with part 15 of the FCC Rules. Operation is subject to the following two conditions: (1) this device may not cause harmful interference, and (2) this device must accept any interference received, including interference that may cause undesired operation.\n\nThis device complies with all essential requirements of the CE directives 2011/65/EU (RoHS), 2014/53/EU (RED), and 2023/1542/EU (BATTERY).\n\nPlease carefully read the printed safety information and regulatory compliance information included with the device in order to understand how to operate this device safely.";
+                    wrap: word-wrap;
+                }
+
+                HorizontalLayout {
+                    width: 100%;
+                    spacing: 16px;
+                    alignment: center;
+
+                    for source in [
+                        @image-url("../../icons/legal/ce-45px.png"),
+                        @image-url("../../icons/legal/ukca-45px.png"),
+                        @image-url("../../icons/legal/weee-45px.png"),
+                        @image-url("../../icons/legal/fcc-45px.png"),
+                    ]: Image {
+                        source: source;
+                        image-fit: contain;
+                        height: 45px;
+                    }
+                }
+            }
+
+            i-focus-scope := FocusScope {
+                key-pressed(event) => {
+                    if (event.text == "a" && !i-view.is-scroll-at-end) {
+                        // Prevent moving to the next page until scroll is complete.
+                        accept
+                    } else {
+                        reject
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            alignment: space-between;
+
+            ControlHint {
+                label: "Scroll";
+                button: "dpad-down";
+            }
+
+            ControlHint {
+                label: "Continue";
+                button: "a";
+                enabled: i-view.is-scroll-at-end;
+            }
+        }
+    }
+}
+
+export component SetupScreen inherits ScreenBase {
+    private property <int> page: 0;
+    private property <int> max-page: 8;
+
+    function prev-page() {
+        if (page > 0) {
+            page -= 1;
+        }
+        if (page == 0) {
+            Global.ui-transparent = true;
+        }
+    }
+
+    function next-page() {
+        Global.ui-transparent = false;
+        if (page < max-page) {
+            page += 1;
+        }
+    }
+
+    forward-focus: i-focus-scope;
+    i-focus-scope := FocusScope {
+        // Page 0: Logo
+        if page == 0: Rectangle {
+            init => {
+                root.focus();
+            }
+            ControlHint {
+                label: "Begin Tutorial";
+                button: "a";
+                y: root.height - self.height - 8px;
+            }
+        }
+
+        // Page 1: Controls
+        if page >= 1 && page < 7: ControlsPage {
+            init => {
+                root.focus();
+            }
+            step: page - 1;
+        }
+
+        // Legal information
+        if page == 7: LegalPage {
+            init => {
+                self.focus();
+            }
+        }
+
+        // Docs and Update information
+        if page == 8: Rectangle {
+            init => {
+                root.focus();
+            }
+
+            Text {
+                color: Theme.fg;
+                text: "Read the full user guide at";
+                horizontal-alignment: center;
+                y: 50px;
+            }
+
+            Text {
+                color: Theme.fg;
+                text: "docs.gamebub.net";
+                horizontal-alignment: center;
+                y: 66px;
+                font-weight: 800;
+            }
+
+            Text {
+                color: Theme.fg;
+                text: "Check for software updates at";
+                horizontal-alignment: center;
+                y: 120px;
+            }
+
+            Text {
+                color: Theme.fg;
+                text: "update.gamebub.net";
+                horizontal-alignment: center;
+                y: 136px;
+                font-weight: 800;
+            }
+
+            ControlHint {
+                label: "Exit Setup";
+                button: "home";
+                y: root.height - self.height - 8px;
+            }
+        }
+
+        key-pressed(event) => {
+            if (event.repeat) {
+                reject
+            } else if (event.text == "a") {
+                next-page();
+                accept
+            } else if (event.text == "b") {
+                prev-page();
+                accept
+            } else if (page == max-page && event.text == "Home") {
+                Backend.setup-complete();
+                Global.set-screen(ScreenId.MainMenu);
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+}

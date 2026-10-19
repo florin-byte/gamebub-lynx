@@ -1,0 +1,46 @@
+# Third-party notices
+
+This repository is a port of other people's work. Every component keeps its own copyright headers and license text;
+this page lists them in one place, with what was written for this port.
+
+| Component | Where | Authors | License |
+| --- | --- | --- | --- |
+| Atari Lynx core (AtariLynx_MiSTer @ `3708e45`) | `fpga/vendor/lynx_mister/` (local changes listed in its `README.md`) | Robert Peip (FPGAzumSpass) and the AtariLynx_MiSTer contributors | GPL-2.0 (`fpga/vendor/lynx_mister/LICENSE`) |
+| Game Bub FPGA framework, platform and built-in cores (boot, Game Boy, Game Boy Advance) | `fpga/` (except the files listed below as other authors' or Florin's) | Eli Lipsitz and Game Bub contributors | CERN-OHL-S-2.0 (`LICENSE-CERN-OHL-S`) |
+| Game Bub firmware and scripts | `firmware/`, `fpga/scripts/` | Eli Lipsitz and Game Bub contributors | GPL-3.0-only (`LICENSE-GPL-V3`) |
+| The Game Bub logo, and the two masks of it the firmware's themes draw (`logo-face.png`, `logo-shadow.png`, generated from `logo.png`) | `firmware/handheld/res/` | Eli Lipsitz | part of the firmware; "Game Bub" and its logo are Eli Lipsitz's trademarks |
+| Audio decimator, audio rate adapter, DC blocker, low-priority memory mux, `BUFG` / `PLL` wrappers; the SDRAM controller's `readCaptureFalling` option | `fpga/src/main/scala/lib/audio/AudioDecimator.scala`, `AudioRateAdapter.scala`, `AudioDcBlocker.scala`, `lib/mem/PipelineMemoryLowPriorityMux.scala`, `xilinx/BUFG.scala`, `xilinx/PLL.scala`, `lib/mem/sdram/BurstSdramController.scala` | minuitfranck, from his Mega Drive port for the Game Bub | CERN-OHL-S-2.0, as part of the framework |
+| Line buffer and line read cache, `BUFGCE` wrapper, byte-port bridge, SRAM host adapter; the options `fair` / `handover` (`MemoryArbiter`), `registeredOutputs` / `handover` (`AsyncSramController`), `safeWrites` (`PipelineMemoryBurstCdc`), `passThroughUntilLoaded` (`ColorCorrection`), `prechargeAll` (`BurstSdramController`) | `fpga/src/main/scala/lib/mem/cache/LineBuffer.scala`, `LineReadCache.scala`, `xilinx/BUFGCE.scala`, `lib/mem/sram/BytePortBridge.scala`, `SramHostAdapter.scala`, and the modules named | Jeremy O'Brien (neutralinsomniac), from his SNES port for the Game Bub (the bridge and the adapter through minuitfranck's NES port) | CERN-OHL-S-2.0, as part of the framework |
+| `VideoV0.framePeriodSlow` and the ILI9488 driver's slow line (50 Hz pictures on the rev2 LCD) | `fpga/src/main/scala/net/gamebub/framework/interface/VideoV0.scala`, `platform/handheld/display/ILI9488.scala` | minuitfranck, from his NES port for the Game Bub | CERN-OHL-S-2.0, as part of the framework |
+| HDMI transmitter (Eli Lipsitz's fork of hdl-util/hdmi; a submodule upstream, included as files) | `fpga/verilog/hdmi/` | Sameer Puri and contributors | MIT or Apache-2.0 (`fpga/verilog/hdmi/LICENSE-MIT`, `LICENSE-APACHE`) |
+| PicoRV32 (the boot design's soft CPU) | `fpga/verilog/picorv32.v` | Claire Xenia Wolf | ISC |
+| Mill launchers | `fpga/mill`, `fpga/mill.bat` | The Mill project (com-lihaoyi/mill 1.1.7) | MIT |
+| Chisel, Mill, firtool, ESP-IDF and the Rust crates | build time only, not in this repository | their projects | Apache-2.0, MIT and others |
+
+## Written for this port (Florin)
+
+GPL-2.0-or-later (`LICENSE-GPL-V2`, `LICENSE-GPL-V3`):
+
+- the Lynx core's glue: `fpga/src/main/scala/net/gamebub/core/lynx/`, `fpga/src/main/vhdl/lynx/`,
+  `fpga/sim/lynx/`, `scripts/rev2/lynx_test_sim.sh`, `sdcard/`;
+- the LCD aspect scaler: `fpga/src/main/scala/platform/handheld/LcdAspectScaler.scala`,
+  `lib/video/PolyphaseScaler.scala`, `net/gamebub/framework/interface/VideoScalerV0.scala` and its wiring in
+  `HandheldTop.scala`, `fpga/src/test/scala/platform/handheld/LcdAspectScalerSpec.scala`;
+- the Game Boy save-state walker `fpga/src/main/scala/net/gamebub/core/gameboy/GbSaveStateWalker.scala` and the
+  simulator `fpga/sim/test_main.cpp`;
+- `fpga/src/test/scala/lib/mem/sdram/BurstSdramControllerSpec.scala`;
+- the build scripts `scripts/rev2/make_vivado_bundle.py`, `pack_vivado_bundles.py`, `finish_bitstream.py`;
+- the firmware additions: `firmware/handheld/src/core/on_demand.rs` (on-demand core files: save states),
+  `core/cheats.rs`, `util/atomic_file.rs`, `util/localtime.rs`, `res/ui/theme.slint`,
+  `res/ui/components/scrolling_text.slint`. They are part of a GPL-3.0-only program, so the firmware as a whole is
+  GPL-3.0-only.
+
+Florin's changes to Eli Lipsitz's files (for example `HandheldTop.scala`, the firmware's `core/`, `ui/` and
+`bitstream/` modules, `XpmFifoAsync.scala`, `build_core.py`) are under those files' licenses.
+
+## Not included
+
+No Atari Lynx boot ROM (`system/lynxboot.img`, Atari's code: dump it from your own Lynx) and no games.
+
+"Game Bub" is Eli Lipsitz's project and trademark; this core is unofficial and uses neither the name nor the logo as
+its own. "Atari" and "Lynx" are trademarks of their owners.

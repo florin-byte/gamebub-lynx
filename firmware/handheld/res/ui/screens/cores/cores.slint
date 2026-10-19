@@ -1,0 +1,98 @@
+import { Global, ScreenId, Backend } from "../../common.slint";
+import { ScreenBase } from "../../components/screen.slint";
+import { TextListView } from "../../components/list_view.slint";
+import { ControlHint } from "../../components/control_hint.slint";
+import { CoreList } from "core_list.slint";
+import { CoreDetails } from "core_detail.slint";
+import { CoreSubscreen, CoreListEntry } from "types.slint";
+import { CoreFileSelect } from "core_file_select.slint";
+import { CoreError } from "core_error.slint";
+
+export component CoresScreen inherits ScreenBase {
+    title: "Cores";
+
+    in property <[CoreListEntry]> cores: Backend.core-list;
+    private property <int> selected-core: Backend.core-selected-index;
+
+    init => {
+        Backend.core-file-select-list = [];
+        Backend.core-file-select-label = "";
+        if Backend.core-list.length == 0 {
+            Backend.core-list-fetch();
+        }
+        if (Backend.core-error.is-empty) {
+            Backend.core-subscreen = CoreSubscreen.List;
+        } else {
+            Backend.core-subscreen = CoreSubscreen.Error;
+        }
+    }
+
+    if Backend.core-subscreen == CoreSubscreen.List: CoreList {
+        cores: root.cores;
+        width: 100%;
+        height: 100%;
+
+        init => {
+            self.focus();
+        }
+
+        on-cancel => {
+            Global.set-screen(ScreenId.MainMenu);
+            Backend.core-subscreen = CoreSubscreen.List;
+        }
+        on-core-selected(i) => {
+            Backend.core-selected-index = i;
+            Backend.core-subscreen = CoreSubscreen.Detail;
+        }
+    }
+
+    if Backend.core-subscreen == CoreSubscreen.Detail: CoreDetails {
+        width: 100%;
+        height: 100%;
+
+        init => {
+            // TODO: adjust screen title if coming back from File Select
+            self.focus();
+        }
+
+        core-name: cores[selected-core].core-name;
+        core-author: cores[selected-core].core-author;
+
+        on-cancel => {
+            Backend.core-subscreen = CoreSubscreen.List;
+        }
+        on-run => {
+            Backend.core-run(cores[selected-core].core-id);
+            // TODO: show loading screen?
+        }
+    }
+
+    if Backend.core-subscreen == CoreSubscreen.FileSelect: CoreFileSelect {
+        width: 100%;
+        height: 100%;
+
+        init => {
+            self.focus();
+        }
+        on-cancel => {
+            Backend.core-subscreen = CoreSubscreen.Detail;
+            Backend.core-file-select-cancel();
+        }
+    }
+
+    if Backend.core-subscreen == CoreSubscreen.Error: CoreError {
+        width: 100%;
+        height: 100%;
+
+        error: Backend.core-error;
+
+        init => {
+            self.focus();
+        }
+        on-confirm => {
+            Backend.core-error = "";
+            Backend.core-subscreen = CoreSubscreen.Detail;
+            Backend.core-file-select-cancel();
+        }
+    }
+}

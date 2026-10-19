@@ -1,0 +1,72 @@
+import { Theme } from "../theme.slint";
+export component Button inherits Rectangle {
+    callback on-up() -> EventResult;
+    callback on-down() -> EventResult;
+    callback on-left() -> EventResult;
+    callback on-right() -> EventResult;
+    callback on-pressed();
+    callback on-focused();
+
+    in-out property text <=> txt.text;
+    in property <bool> disabled: false;
+    property <color> text-color;
+
+    horizontal-stretch: 0;
+    border-width: 1px;
+    height: txt.preferred-height + 6px;
+    min-width: txt.preferred-width + 6px;
+    txt := Text {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        color: text-color;
+        // Needed for bug in PopupWindows (PowerMenu).
+        // https://github.com/slint-ui/slint/issues/8855
+        font-size: 12px;
+    }
+
+    states [
+        disabled when disabled: {
+            background: Theme.highlight;
+            border-color: Theme.border-dim;
+            text-color: Theme.text-dim;
+        }
+        focused when focus.has-focus: {
+            background: Theme.surface;
+            border-color: Theme.border;
+            text-color: Theme.text;
+        }
+        inactive when !focus.has-focus: {
+            background: Theme.surface-alt;
+            border-color: Theme.border-dim;
+            text-color: Theme.text-dim;
+        }
+    ]
+
+    focus := FocusScope {
+        focus-changed-event => {
+            if (self.has-focus) {
+                on-focused();
+            }
+        }
+        key-pressed(event) => {
+            if (event.repeat) {
+                reject
+            } else if (event.text == "a") {
+                on-pressed();
+                accept
+            } else if (event.text == Key.UpArrow) {
+                on-up()
+            } else if (event.text == Key.DownArrow) {
+                on-down()
+            } else if (event.text == Key.LeftArrow) {
+                on-left()
+            } else if (event.text == Key.RightArrow) {
+                on-right()
+            } else {
+                reject
+            }
+        }
+    }
+
+    forward-focus: focus;
+}

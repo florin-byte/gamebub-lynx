@@ -1,0 +1,147 @@
+import "../fonts/ark-pixel-12px-proportional.ttf";
+import "../fonts/ark-pixel-12px-proportional-bold.ttf";
+import {
+    SettingEntry,
+    SettingValue,
+    SettingType,
+    SettingDatetime,
+} from "screens/settings/types.slint";
+import { FileListEntry } from "components/file_list.slint";
+import {
+    CoreSubscreen,
+    CoreListEntry,
+    CoreSetting,
+    CoreSettingType,
+} from "screens/cores/types.slint";
+
+export enum ScreenId {
+    Setup,
+    MainMenu,
+    Game,
+    Settings,
+    Tools,
+    Error,
+    About,
+    Cores,
+}
+
+export struct BatteryInfo {
+    vbus_pgood: bool,
+    is_charging: bool,
+    voltage: float,
+    level: float,
+    current: float,
+}
+
+export global Palette { }
+
+export global Global {
+    // Window height
+    in-out property <length> window-height;
+    // Whether Home is currently pressed.
+    in-out property <bool> home-pressed: false;
+    // Whether the current pressing of Home was used for a shortcut key combo.
+    in-out property <bool> home-consumed;
+    out property <ScreenId> current-screen: MainMenu;
+    // Whether the UI is transparent. Start true for the boot animation.
+    in-out property <bool> ui-transparent: true;
+    in-out property <bool> ui-status-bar: true;
+
+    public function set-screen(screen: ScreenId) {
+        current-screen = screen;
+        ui-transparent = (screen == ScreenId.Game || screen == ScreenId.Setup);
+        Backend.screen-enter(screen);
+    }
+}
+
+export global Backend {
+    in property <string> hardware-serial;
+    in property <string> hardware-version;
+    in property <string> firmware-version;
+
+    in property <bool> docked: false;
+    in property <string> dock-serial;
+    in property <string> dock-firmware-version;
+
+    in property <bool> sdcard-mounted: true;
+
+    in-out property <bool> volume-visible: false;
+    in-out property <int> volume-level: 50;
+    in property <int> volume-increment: 5;
+
+    in-out property <bool> brightness-visible: false;
+    in-out property <int> brightness-level: 50;
+    in property <int> brightness-increment: 5;
+
+    in property <int> battery-level: 11;
+    in property <bool> battery-charging: false;
+    in property <string> clock-text: "";
+    in property <bool> time-24h: false;
+
+    in property <string> error-text: "";
+
+    in property <bool> notification-visible: false;
+    in property <string> notification-text: "I am a notification!";
+
+    in property <[SettingEntry]> settings: [
+        {
+            name: "list",
+            type: SettingType.list,
+            choices: ["Low", "Medium", "High"],
+            value: { int-value: 1 }
+        },
+        { name: "check 1", type: SettingType.checkbox, value: { bool-value: true } },
+        { name: "check 2", type: SettingType.checkbox, value: { bool-value: false } },
+        { name: "check 3", type: SettingType.checkbox, value: { bool-value: true } },
+        { name: "subpage", type: SettingType.subpage },
+        {
+            name: "datetime",
+            type: SettingType.datetime,
+            value: { datetime-value: { year: 2024, month: 3, day: 31, hour: 9, min: 30 } }
+        },
+    ];
+    in-out property <int> settings-index: 0;
+
+    in-out property <CoreSubscreen> core-subscreen;
+    in property <[CoreListEntry]> core-list;
+    in-out property <int> core-list-index;
+    in property <string> core-file-select-label: "";
+    in property <[FileListEntry]> core-file-select-list: [];
+    in property <string> core-file-select-path: "/fake/path/";
+    in property <bool> core-file-select-is-loading: false;
+    in-out property <string> core-file-select-error;
+    in-out property <int> core-file-select-index: 0;
+    in-out property <int> core-selected-index: 0;
+    in-out property <string> core-error;
+    in property <percent> core-progress: 0%;
+    in property <bool> core-is-loading: false;
+    in property <[CoreSetting]> core-settings;
+
+    callback volume-changed(int);
+    callback brightness-changed(int);
+    callback power-off();
+    callback reboot();
+
+    callback setup-complete();
+    callback main-menu-run-cartridge();
+    callback game-set-focused(bool);
+    callback game-exit();
+    callback game-settings-load();
+    callback game-settings-set(int, int);
+    callback settings-changed(int, SettingValue);
+    callback settings-back() -> bool;
+    callback tools-start-usb-drive();
+    callback tools-end-usb-drive();
+    callback tools-start-cart-reader();
+    callback tools-end-cart-reader();
+    callback tools-get-battery-info() -> BatteryInfo;
+    callback core-list-fetch();
+    callback core-run(string);
+    callback core-file-select-selected(int);
+    callback core-file-select-up();
+    callback core-file-select-cancel();
+
+    callback screen-enter(ScreenId);
+
+    callback datetime-add(SettingDatetime, SettingDatetime) -> SettingDatetime;
+}

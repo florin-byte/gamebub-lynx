@@ -1,0 +1,38 @@
+import { Theme } from "../theme.slint";
+import { Global, Backend } from "../common.slint";
+import { ScreenBase } from "../components/screen.slint";
+
+export component ErrorScreen inherits ScreenBase {
+    private property <int> selected-tool: -1;
+
+    title: "Error";
+    forward-focus: i-focus-scope;
+    VerticalLayout {
+        spacing: 4px;
+        padding-left: 4px;
+        padding-right: 4px;
+
+        Text {
+            text: Backend.error-text;
+            color: Theme.text;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+            vertical-stretch: 1;
+        }
+
+        Text {
+            text: "Press START to reboot";
+            horizontal-alignment: center;
+            color: Theme.text;
+        }
+    }
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == "Start") {
+                Backend.reboot();
+            }
+            accept
+        }
+    }
+}

@@ -1,0 +1,92 @@
+[package]
+name = "handheld"
+version = "1.1.0-beta2"
+authors = ["Eli Lipsitz <eli.lipsitz@gmail.com>"]
+edition = "2021"
+resolver = "2"
+rust-version = "1.93"
+
+[[bin]]
+name = "handheld"
+harness = false   # do not use the built in cargo test harness -> resolve rust-analyzer errors
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true    # Symbols are nice and they don't increase the size on Flash
+opt-level = "z"
+
+[features]
+default = ["std", "embassy", "esp-idf-svc/native"]
+rev1 = ["has_io_expander", "has_ili9488", "has_max17048"]  # Build for handheld revision 1
+rev2 = ["has_io_expander", "has_ili9488", "has_max17048"]  # Build for handheld revision 2
+rev3 = ["has_st7262", "has_bq27427"]  # Build for handheld revision 3
+rev4 = ["has_ili9806e", "has_bq27427"]  # Build for handheld revision 4
+
+has_io_expander = []
+has_ili9488 = []
+has_st7262 = []
+has_max17048 = []
+has_bq27427 = []
+has_ili9806e = []
+
+pio = ["esp-idf-svc/pio"]
+std = [
+    "alloc",
+    "esp-idf-svc/binstart",
+    "esp-idf-svc/std",
+    "embedded-hal-bus/std",
+]
+alloc = ["esp-idf-svc/alloc"]
+nightly = ["esp-idf-svc/nightly"]
+experimental = ["esp-idf-svc/experimental"]
+embassy = [
+    "esp-idf-svc/embassy-sync",
+    "esp-idf-svc/critical-section",
+    "esp-idf-svc/embassy-time-driver",
+]
+
+[dependencies]
+log = { version = "0.4", default-features = false }
+esp-idf-svc = { version = "0.50.0", default-features = false }
+anyhow = "1.0.79"
+embedded-hal = "1.0.0"
+embedded-hal-bus = "0.1.0"
+thiserror = "1.0.57"
+enum-map = "2.7.3"
+slint = { version = "~1.12.1", default-features = false, features = [
+    "compat-1-2",
+    "unsafe-single-threaded",
+    "libm",
+    "renderer-software",
+    "serde",
+] }
+serde = "1.0.197"
+postcard = { version = "1.0.8", default-features = false, features = [
+    "use-std",
+] }
+embedded-svc = "0.28.0"
+smallvec = { version = "1.13.2", features = ["write"] }
+time = "0.3.37"
+cfg-if = "1.0"
+base64 = "0.22.1"
+hex = "0.4.3"
+heatshrink-lib = { version = "1.0.0", features = ["embedded-io"] }
+embedded-io-adapters = { version = "0.6.0", features = ["std"] }
+serde_json = "1.0.151"
+arrayvec = { version = "0.7.8", features = ["serde"] }
+
+[build-dependencies]
+embuild = "0.33.0"
+slint-build = "~1.12.1"
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/esp_tinyusb", version = "^2.1.1" }
+bindings_header = "bindings_esp_tinyusb.h"
+
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/tinyusb", version = "^0.19.0" }
+
+[patch.crates-io]
+esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys.git", rev = "a9356d9" }

@@ -1,0 +1,101 @@
+import { Theme } from "../../theme.slint";
+import { Backend } from "../../common.slint";
+import { ListViewBase } from "../../components/list_view.slint";
+import { SettingType, SettingValue, SettingEntry } from "types.slint";
+import { DatetimePicker } from "datetime.slint";
+import { ListBox } from "list_box.slint";
+import { Icons } from "../../icons.slint";
+
+export component SettingsListViewItem {
+    in property <SettingEntry> item;
+    in property <bool> selected;
+    in property <int> index;
+
+    public function handle-selected() -> EventResult {
+        if item.type == SettingType.checkbox {
+            Backend.settings-changed(index, { bool-value: !item.value.bool-value });
+        } else if item.type == SettingType.subpage {
+            Backend.settings-changed(index, { });
+        } else if item.type == SettingType.datetime {
+            return accept;
+        } else if item.type == SettingType.list {
+            return accept;
+        }
+        reject
+    }
+
+    min-width: i-text.min-width;
+    min-height: i-text.min-height + 2px;
+
+    i-text := Text {
+        color: Theme.fg;
+        x: 2px;
+        text: root.item.name;
+        vertical-alignment: center;
+        horizontal-alignment: left;
+        overflow: elide;
+    }
+
+    // Checkbox
+    if item.type == SettingType.checkbox: Rectangle {
+        background: Theme.surface;
+        x: parent.width - self.width - 4px;
+        width: self.height;
+        height: parent.height - 2px;
+        border-color: Theme.border;
+        border-width: 1px;
+
+        if item.value.bool-value: Rectangle {
+            x: 2px;
+            y: 2px;
+            width: parent.width - 4px;
+            height: parent.height - 4px;
+            background: Theme.text-dim;
+        }
+    }
+    if item.type == SettingType.subpage: Image {
+        x: parent.width - self.width - 4px;
+        source: Icons.right-arrow;
+        colorize: Theme.text-secondary;
+    }
+    if item.type == SettingType.datetime: DatetimePicker {
+        selected: root.selected;
+        dt: item.value.datetime-value;
+        x: parent.width - self.width - 4px;
+        y: (parent.height - self.height) * 50%;
+        on-changed(delta) => {
+            Backend.settings-changed(index, { datetime-value: delta });
+        }
+    }
+    if item.type == SettingType.list: ListBox {
+        x: parent.width - self.width - 4px;
+        index: item.value.int-value;
+        choices: item.choices;
+        selected: root.selected;
+        on-changed => {
+            Backend.settings-changed(index, { int-value: self.index });
+        }
+    }
+
+    @children
+}
+
+export component SettingsListView inherits ListViewBase {
+    in property <[SettingEntry]> model;
+    num-items: model.length;
+
+    for item[index] in root.model: child-items := SettingsListViewItem {
+        index: index;
+        item: item;
+        height: self.min-height;
+        selected: (index == root.focus-item) && root.item-selected;
+
+        if self.selected: FocusScope {
+            init => {
+                if parent.handle-selected() != EventResult.accept {
+                    root.item-selected = false;
+                }
+            }
+        }
+    }
+}

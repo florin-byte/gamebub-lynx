@@ -1,0 +1,45 @@
+import { Theme } from "../theme.slint";
+import { Icons } from "../icons.slint";
+
+export component ControlHint inherits Rectangle {
+    in property <string> button;
+    in property <string> label;
+    private property <length> spacing: 6px;
+    in property <bool> enabled: true;
+
+    width: i-image.width + spacing + i-text.width;
+    height: max(i-image.height, i-image.height);
+
+    pure function getImage(button: string) -> image {
+        if (button == "a") {
+            Icons.btn-a
+        } else if (button == "b") {
+            Icons.btn-b
+        } else if (button == "x") {
+            Icons.btn-x
+        } else if (button == "home") {
+            Icons.btn-home
+        } else if (button == "dpad-down") {
+            Icons.btn-dpad-down
+        } else {
+            Icons.empty
+        }
+    }
+
+    i-image := Image {
+        x: 0;
+        y: (root.height - self.height) / 2 + 1px;
+        width: 12px;
+        height: 12px;
+        source: getImage(button);
+        colorize: enabled ? Theme.icon : Theme.text-dim;
+    }
+
+    i-text := Text {
+        x: i-image.width + spacing;
+        text: label;
+        vertical-alignment: center;
+        horizontal-alignment: left;
+        color: enabled ? Theme.text : Theme.text-dim;
+    }
+}

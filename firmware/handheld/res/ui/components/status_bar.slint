@@ -1,0 +1,59 @@
+import { Theme } from "../theme.slint";
+import { Backend } from "../common.slint";
+import { Icons } from "../icons.slint";
+
+export component StatusBar inherits Rectangle {
+    in property <string> title;
+
+    x: 0;
+    y: 0;
+    width: 100%;
+    height: 16px;
+    background: Theme.status-bg;
+
+    // Title text, centered on the whole bar
+    Text {
+        color: Theme.status-fg;
+        x: 0;
+        width: parent.width;
+        height: parent.height;
+        text: root.title;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    HorizontalLayout {
+        spacing: 4px;
+        padding-left: 4px;
+        padding-right: 4px;
+        height: 100%;
+
+        // Clock
+        Text {
+            color: Theme.status-fg;
+            text: Backend.clock-text;
+            horizontal-stretch: 0;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        // Charging indicator
+        if Backend.battery-charging: Text {
+            color: Theme.status-fg;
+            text: "CHG";
+            horizontal-stretch: 0;
+            vertical-alignment: center;
+        }
+
+        // Battery text
+        Text {
+            color: Theme.status-fg;
+            text: "\{Backend.battery-level}%";
+            horizontal-stretch: 0;
+            vertical-alignment: center;
+        }
+    }
+}

@@ -1,0 +1,34 @@
+{
+	"files": [
+		{
+			"id": 0,
+			"label": "Cartridge",
+			"extensions": [
+				"lnx",
+				"lyx"
+			],
+			"user_selected": true,
+			"optional": false,
+			"read_only": true,
+			"address": "0x30000000",
+			"max_size": "0x100000"
+		},
+		{
+			"id": 1,
+			"label": "Boot ROM",
+			"filename": "/sdcard/system/lynxboot.img",
+			"optional": false,
+			"read_only": true,
+			"address": "0x50000000",
+			"exact_size": "0x200"
+		},
+		{
+			"id": 2,
+			"label": "State",
+			"optional": true,
+			"on_demand": true,
+			"address": "0x30200000",
+			"max_size": "0x10400"
+		}
+	]
+}

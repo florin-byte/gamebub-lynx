@@ -1,0 +1,30 @@
+import { Theme } from "../theme.slint";
+import { Backend } from "../common.slint";
+import { Icons } from "../icons.slint";
+
+export component Notification inherits Rectangle {
+    in property <string> text;
+
+    width: self.min-width;
+    height: self.min-height;
+    background: Theme.surface;
+    border-color: Theme.border;
+    border-radius: 4px;
+    border-width: 1px;
+
+    HorizontalLayout {
+        padding: 4px;
+        spacing: 4px;
+
+        Image {
+            source: Icons.folder;
+            colorize: Theme.icon;
+        }
+
+        Text {
+            color: Theme.text;
+            text: text;
+            vertical-alignment: center;
+        }
+    }
+}

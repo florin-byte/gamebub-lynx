@@ -1,0 +1,214 @@
+import { Theme } from "theme.slint";
+import { StatusBar } from "components/status_bar.slint";
+import { TextListView } from "components/list_view.slint";
+import { VolumeBar } from "components/volume_bar.slint";
+import { MainMenuScreen } from "screens/main_menu.slint";
+import { GameScreen } from "screens/game.slint";
+import { SettingsScreen } from "screens/settings/settings.slint";
+import { ToolsScreen } from "screens/tools/tools.slint";
+import { ErrorScreen } from "screens/error.slint";
+import { AboutScreen } from "screens/about.slint";
+import { Global, ScreenId, Backend } from "common.slint";
+import { Palette as StdPalette } from "std-widgets.slint";
+import { PowerMenu } from "components/power_menu.slint";
+import { Notification } from "components/notification.slint";
+import { SetupScreen } from "screens/setup.slint";
+import { CoresScreen } from "screens/cores/cores.slint";
+
+export { ScreenId, Backend, Theme }
+export component MainWindow inherits Window {
+    private property <string> screen-title;
+
+    protected function update-volume(amount: int) {
+        Backend.volume-visible = true;
+        Backend.volume-level = clamp(Backend.volume-level + amount, 0, 100);
+        Backend.volume-changed(Backend.volume-level);
+        Backend.brightness-visible = false;
+    }
+
+    protected function update-brightness(amount: int) {
+        Backend.brightness-visible = true;
+        Backend.brightness-level = clamp(Backend.brightness-level + amount, 0, 100);
+        Backend.brightness-changed(Backend.brightness-level);
+        Backend.volume-visible = false;
+    }
+
+    public function set-screen(screen: ScreenId) {
+        Global.set-screen(screen);
+    }
+
+    // At boot the main menu is transparent, showing the logo animation of the FPGA boot design
+    // over its fixed light background. With another theme, switch to the menu's own background
+    // and logo once the animation is done (as happens after visiting any other screen).
+    public function end-boot-transparency() {
+        if Global.current-screen == ScreenId.MainMenu {
+            Global.ui-transparent = false;
+        }
+    }
+
+    // Sets the std-widgets color scheme; with `std-fg`, Theme.fg follows its text color.
+    public function set-color-scheme(dark: bool, std-fg: bool) {
+        StdPalette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
+        if std-fg {
+            Theme.fg = StdPalette.foreground;
+            Theme.status-fg = StdPalette.foreground;
+        }
+    }
+
+    public function set-title(title: string) {
+        screen-title = title;
+    }
+
+    background: Global.ui-transparent ? transparent : Theme.bg;
+    default-font-family: "Ark Pixel 12px Prop latin";
+    default-font-size: 12px;
+
+    init => {
+        Global.window-height = root.height;
+    }
+
+    status-bar := StatusBar {
+        visible: Global.ui-status-bar;
+        title: root.screen-title;
+    }
+
+    focus-scope := FocusScope {
+        y: status-bar.visible ? status-bar.height : 0;
+        height: parent.height - self.y;
+
+        VerticalLayout {
+            padding: 4px;
+            Rectangle {
+                if (Global.current-screen == ScreenId.Setup): SetupScreen {
+                    init => {
+                        Global.ui-status-bar = false;
+                        self.focus();
+                        root.screen-title = self.title;
+                    }
+                }
+                if (Global.current-screen == ScreenId.MainMenu): MainMenuScreen {
+                    init => {
+                        Global.ui-status-bar = true;
+                        self.focus();
+                        root.screen-title = self.title;
+                    }
+                }
+
+                if (Global.current-screen == ScreenId.Game): GameScreen {
+                    init => {
+                        Global.ui-status-bar = false;
+                        self.focus();
+                        root.screen-title = self.title;
+                    }
+                }
+
+                if (Global.current-screen == ScreenId.Settings): SettingsScreen {
+                    init => {
+                        self.focus();
+                        root.screen-title = self.title;
+                    }
+                }
+
+                if (Global.current-screen == ScreenId.Tools): ToolsScreen {
+                    init => {
+                        self.focus();
+                        root.screen-title = self.title;
+                    }
+                }
+
+                if (Global.current-screen == ScreenId.Error): ErrorScreen {
+                    init => {
+                        self.focus();
+                        root.screen-title = self.title;
+                    }
+                }
+
+                if (Global.current-screen == ScreenId.About): AboutScreen {
+                    init => {
+                        self.focus();
+                        root.screen-title = self.title;
+                    }
+                }
+
+                if (Global.current-screen == ScreenId.Cores): CoresScreen {
+                    init => {
+                        Global.ui-status-bar = true;
+                        root.screen-title = self.title;
+                    }
+                }
+            }
+        }
+
+        key-pressed(event) => {
+            if event.text == "VolUp" || event.text == "q" {
+                if Global.home-pressed {
+                    Global.home-consumed = true;
+                    update-brightness(Backend.brightness-increment);
+                } else {
+                    update-volume(Backend.volume-increment);
+                }
+            }
+            if event.text == "VolDown" || event.text == "e" {
+                if Global.home-pressed {
+                    Global.home-consumed = true;
+                    update-brightness(-Backend.brightness-increment);
+                } else {
+                    update-volume(-Backend.volume-increment);
+                }
+            }
+            if (event.text == "Home" || event.text == "h") && !event.repeat {
+                Global.home-pressed = true;
+                Global.home-consumed = false;
+            }
+            accept
+        }
+
+        key-released(event) => {
+            if (event.text == "Home" || event.text == "h") {
+                Global.home-pressed = false;
+            }
+            if (event.text == "Power" || event.text == "p") {
+                power-menu.show();
+            }
+            accept
+        }
+    }
+
+    if Backend.volume-visible: VolumeBar {
+        x: 8px;
+        y: parent.height * 0.25;
+        height: 50%;
+        level: Backend.volume-level;
+
+        icon-0: @image-url("../icons/volume-0.png");
+        icon-1: @image-url("../icons/volume-1.png");
+        icon-2: @image-url("../icons/volume-2.png");
+        icon-3: @image-url("../icons/volume-3.png");
+    }
+
+    if Backend.brightness-visible: VolumeBar {
+        x: 8px;
+        y: parent.height * 0.25;
+        height: 50%;
+        level: Backend.brightness-level;
+
+        icon-0: @image-url("../icons/brightness-0.png");
+        icon-1: @image-url("../icons/brightness-1.png");
+        icon-2: @image-url("../icons/brightness-2.png");
+        icon-3: @image-url("../icons/brightness-3.png");
+    }
+
+    power-menu := PowerMenu {
+        // PowerMenu is a PopupWindow and appears conditionally
+        x: 0;
+        y: 0;
+        width: root.width;
+        height: root.height;
+    }
+
+    if Backend.notification-visible: Notification {
+        x: root.width - self.width - 8px;
+        y: 8px;
+        text: Backend.notification-text;
+    }
+}

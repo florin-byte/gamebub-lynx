@@ -1,0 +1,84 @@
+import { Theme } from "../theme.slint";
+// A single line of text that is elided when it doesn't fit, and scrolls horizontally while
+// `active` is true (e.g. for the selected item of a list). Only the active item animates, so the
+// redraw is limited to that line.
+//
+// Nothing that the layout reads depends on the width the layout assigns: in ListViewBase that
+// width depends on the content height (through the scrollbar), and Slint 1.12 then reports a
+// binding loop ("Recursion detected"). So the sizes come from an invisible Text that is never
+// given a width, and the Timer runs on `active` alone (not on whether the text overflows).
+export component ScrollingText inherits Rectangle {
+    in property <string> text;
+    in property <bool> active: false;
+    // Default: the color of Text without an explicit color.
+    in property <brush> text-color: Theme.fg;
+    // Alignment of the text while it isn't scrolling.
+    in property <TextHorizontalAlignment> align: TextHorizontalAlignment.left;
+
+    // Pixels moved per step, and the number of steps to wait at each end.
+    private property <length> step: 1px;
+    private property <int> pause-steps: 25;
+
+    private property <length> overflow: max(0px, i-measure.preferred-width - root.width);
+    private property <bool> scrolling: root.active && root.overflow > 0px;
+    private property <length> offset: 0px;
+    private property <int> wait: root.pause-steps;
+    // At the start position the elided text is shown, so the pause there looks like a plain list.
+    private property <bool> moved: root.scrolling && root.offset > 0px;
+
+    clip: true;
+    min-height: i-measure.min-height;
+    preferred-width: i-measure.preferred-width;
+
+    changed active => {
+        root.offset = 0px;
+        root.wait = root.pause-steps;
+    }
+
+    // Natural size of the text, for the sizes above. Never shown.
+    i-measure := Text {
+        color: Theme.fg;
+        text: root.text;
+        visible: false;
+    }
+
+    // The text as laid out: elided, hidden while the scrolling copy is shown.
+    i-text := Text {
+        width: root.width;
+        text: root.text;
+        color: root.text-color;
+        vertical-alignment: center;
+        horizontal-alignment: root.align;
+        overflow: elide;
+        visible: !root.moved;
+    }
+
+    if root.moved: Text {
+        x: -root.offset;
+        text: root.text;
+        color: root.text-color;
+        vertical-alignment: center;
+        horizontal-alignment: left;
+    }
+
+    Timer {
+        interval: 40ms;
+        running: root.active;
+        triggered => {
+            if !root.scrolling {
+                // Fits: nothing to scroll.
+            } else if root.wait > 0 {
+                root.wait -= 1;
+            } else if root.offset >= root.overflow {
+                // Reached the end: pause, then jump back to the start and pause again.
+                root.offset = 0px;
+                root.wait = root.pause-steps;
+            } else {
+                root.offset = min(root.overflow, root.offset + root.step);
+                if root.offset >= root.overflow {
+                    root.wait = root.pause-steps;
+                }
+            }
+        }
+    }
+}

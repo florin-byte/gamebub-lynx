@@ -1,0 +1,153 @@
+package gameboy.cart.emu
+
+import chisel3._
+import chisel3.util._
+
+class RtcState extends Bundle {
+  val halt = Bool()
+  val dayOverflow = Bool()
+  val days = UInt(9.W)
+  val hours = UInt(5.W)
+  val minutes = UInt(6.W)
+  val seconds = UInt(6.W)
+}
+
+class Mbc3RtcAccess extends Bundle {
+  /** The read  */
+  val readState = Output(new RtcState)
+  val writeState = Input(new RtcState)
+  /** Whether the data in writeState should be copied to the selected state. */
+  val writeEnable = Input(Bool())
+  /** True to select latched state, False to select backing state. */
+  val latchSelect = Input(Bool())
+}
+
+/**
+ * MBC3
+ *
+ * clockRate: clock rate (in hertz), used for calibrating RTC
+ * */
+class Mbc3(clockRate: Int) extends Module {
+  val io = IO(new MbcIo {
+    val hasRtc = Input(Bool())
+    val rtcAccess = new Mbc3RtcAccess
+  })
+
+  val ramEnable = RegInit(false.B)
+  val bankRom = RegInit(1.U(7.W))
+  val bankRam = RegInit(0.U(4.W))
+  val regClockLatch = RegInit(false.B)
+  val clockSelect = bankRam(3)
+
+  // RTC
+  // Reading always happens from the latched state.
+  // Writing (and updates) always happen with the backing state.
+  // Writing 0 and then 1 to to latch control will update latched state.
+  val rtcState = Reg(new RtcState)
+  val rtcStateLatched = Reg(new RtcState)
+  // TODO update for handling 8 MHz clock and enable
+  val rtcCounter = new Counter(clockRate)
+  when (io.hasRtc && !rtcState.halt) {
+    val secondTick = rtcCounter.inc()
+    when (secondTick) {
+      val nextSeconds = rtcState.seconds + 1.U
+      rtcState.seconds := nextSeconds
+      when (nextSeconds === 60.U) {
+        rtcState.seconds := 0.U
+        val nextMinutes = rtcState.minutes + 1.U
+        rtcState.minutes := nextMinutes
+        when (nextMinutes === 60.U) {
+          rtcState.minutes := 0.U
+          val nextHours = rtcState.hours + 1.U
+          rtcState.hours := nextHours
+          when (nextHours === 24.U) {
+            rtcState.hours := 0.U
+            val nextDays = rtcState.days + 1.U
+            rtcState.days := nextDays
+            when (nextDays === 0.U) {
+              rtcState.dayOverflow := true.B
+            }
+          }
+        }
+      }
+    }
+  }
+  // Clock writing
+  when (io.memEnable && io.memWrite && !io.selectRom && ramEnable && clockSelect && io.hasRtc) {
+    switch (bankRam) {
+      is (0x08.U) {
+        rtcState.seconds := io.memDataWrite
+        // Writing to the seconds register seems to reset the subsecond counter.
+        rtcCounter.reset()
+      }
+      is (0x09.U) { rtcState.minutes := io.memDataWrite }
+      is (0x0A.U) { rtcState.hours := io.memDataWrite }
+      is (0x0B.U) { rtcState.days := Cat(rtcState.days(8), io.memDataWrite) }
+      is (0x0C.U) {
+        rtcState.days := Cat(io.memDataWrite(0), rtcState.days(7, 0))
+        rtcState.halt := io.memDataWrite(6)
+        rtcState.dayOverflow := io.memDataWrite(7)
+      }
+    }
+  }
+  // RTC access (for saving / loading)
+  io.rtcAccess.readState := Mux(io.rtcAccess.latchSelect, rtcStateLatched, rtcState)
+  when (io.rtcAccess.writeEnable) {
+    when (io.rtcAccess.latchSelect) { rtcStateLatched := io.rtcAccess.writeState }
+      .otherwise { rtcState := io.rtcAccess.writeState }
+  }
+
+  when (io.memEnable && io.memWrite && io.selectRom) {
+    switch (io.memAddress(14, 13)) {
+      is (0.U) { ramEnable := io.memDataWrite(3, 0) === "b1010".U }
+      is (1.U) {
+        val bank = io.memDataWrite(6, 0)
+        bankRom := Mux(bank === 0.U, 1.U, bank)
+      }
+      is (2.U) { bankRam := io.memDataWrite(3, 0) }
+      is (3.U) {
+        regClockLatch := io.memDataWrite(0)
+        when (!regClockLatch && io.memDataWrite(0)) {
+          rtcStateLatched := rtcState
+        }
+      }
+    }
+  }
+
+  io.bankRom1 := 0.U
+  io.bankRom2 := bankRom
+  io.bankRam := bankRam
+
+  // If RAM is disabled, just read 0xFF
+  io.memDataRead := 0xFF.U
+  io.ramReadMbc := !ramEnable || clockSelect
+
+  // Clock reading.
+  when (clockSelect && ramEnable && io.hasRtc) {
+    switch (bankRam) {
+      is (0x08.U) { io.memDataRead := rtcStateLatched.seconds }
+      is (0x09.U) { io.memDataRead := rtcStateLatched.minutes }
+      is (0x0A.U) { io.memDataRead := rtcStateLatched.hours }
+      is (0x0B.U) { io.memDataRead := rtcStateLatched.days(7, 0) }
+      is (0x0C.U) {
+        io.memDataRead := Cat(
+          rtcStateLatched.dayOverflow,
+          rtcStateLatched.halt,
+          0.U(5.W),
+          rtcStateLatched.days(8)
+        )
+      }
+    }
+  }
+
+  // N10 mapper save-state: ramEnable[0], bankRom[7:1], bankRam[11:8], regClockLatch[12].
+  // The RTC (rtcState/rtcStateLatched) is saved separately by the firmware through
+  // io.rtcAccess, so it is not duplicated here. Load is connected last, so it wins.
+  io.ssOut := Cat(0.U(19.W), regClockLatch, bankRam, bankRom, ramEnable)
+  when (io.ssLoad) {
+    ramEnable := io.ssIn(0)
+    bankRom := io.ssIn(7, 1)
+    bankRam := io.ssIn(11, 8)
+    regClockLatch := io.ssIn(12)
+  }
+}

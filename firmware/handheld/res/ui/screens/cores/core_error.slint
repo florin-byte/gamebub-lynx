@@ -1,0 +1,46 @@
+import { Theme } from "../../theme.slint";
+import { ControlHint } from "../../components/control_hint.slint";
+
+export component CoreError {
+    in property <string> error;
+
+    callback on-confirm();
+
+    forward-focus: i-focus-scope;
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == "a") {
+                on-confirm();
+                accept
+            } else {
+                reject
+            }
+        }
+
+        VerticalLayout {
+            spacing: 2px;
+
+            Text {
+                color: Theme.fg;
+                text: "Core Error";
+                horizontal-alignment: center;
+                font-weight: 800;
+            }
+
+            Text {
+                color: Theme.fg;
+                text: error;
+                horizontal-alignment: center;
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                ControlHint {
+                    label: "Confirm";
+                    button: "a";
+                }
+            }
+        }
+    }
+}

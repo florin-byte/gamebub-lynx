@@ -1,0 +1,47 @@
+import { Theme } from "../theme.slint";
+export component ButtonList inherits VerticalLayout {
+    callback on-selected(item: int);
+
+    in property <[string]> items;
+    in-out property <int> focused-item: 0;
+
+    padding: 8px;
+    spacing: 2px;
+    forward-focus: i-focus-scope;
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.repeat) {
+                reject
+            } else if (event.text == "a") {
+                on-selected(focused-item);
+                accept
+            } else if (event.text == Key.UpArrow) {
+                focused-item = max(0, focused-item - 1);
+                accept
+            } else if (event.text == Key.DownArrow) {
+                focused-item = min(items.length - 1, focused-item + 1);
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+
+    for item[index] in items: Rectangle {
+        min-width: i-text.preferred-width + 6px;
+        height: i-text.preferred-height + 6px;
+        border-width: 1px;
+        border-color: focused-item == index ? Theme.border : transparent;
+
+        i-text := Text {
+            text: item;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            color: focused-item == index ? Theme.text : Theme.text-dim;
+            // Needed for bug in PopupWindows (PowerMenu).
+            // https://github.com/slint-ui/slint/issues/8855
+            font-size: 12px;
+        }
+    }
+}

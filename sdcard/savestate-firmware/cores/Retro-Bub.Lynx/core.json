@@ -1,0 +1,19 @@
+{
+	"metadata": {
+		"id": "Retro-Bub.Lynx",
+		"name": "Atari Lynx",
+		"author": "MiSTer, Florin",
+		"version": "0.1.0",
+		"license": "GPL-2.0"
+	},
+	"bitstreams": [
+		{
+			"target": "gamebub_rev4",
+			"filename": "lynx-gamebub_rev4.bit"
+		},
+		{
+			"target": "gamebub_rev2",
+			"filename": "lynx-gamebub_rev2.bit"
+		}
+	]
+}

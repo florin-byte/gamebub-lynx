@@ -1,0 +1,7 @@
+# Name,          Type, SubType,   Offset,   Size,    Flags
+nvs_ro,          data, nvs,       0x9000,   0x6000, readonly
+phy_init,        data, phy,       0xf000,   0x1000,
+dfu,              app, test,     0x10000,  0x30000,
+nvs,             data, nvs,      0x80000,  0x20000,
+factory,          app, factory,       1M,       5M,
+system_data,     data, fat,           6M,       2M, readonly

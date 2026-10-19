@@ -1,0 +1,46 @@
+import { Theme } from "../theme.slint";
+
+import { Button } from "../components/button.slint";
+import { Global, Backend } from "../common.slint";
+import { ButtonList } from "button_list.slint";
+
+export component PowerMenu inherits PopupWindow {
+    close-policy: no-auto-close;
+
+    init => {
+        // forward-focus doesn't work with PopupWindow
+        i-list.focus();
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: black;
+        opacity: 25%;
+    }
+
+    Rectangle {
+        background: Theme.surface;
+        border-color: Theme.border;
+        border-width: 1px;
+        x: (root.width - self.width) / 2;
+        y: (root.height - self.height) / 2;
+        width: i-list.min-width + 20px;
+        height: i-list.min-height;
+
+        i-list := ButtonList {
+            items: ["Power Off", "Reboot", "Close"];
+            focused-item: 2;
+
+            on-selected(item) => {
+                if (item == 0) {
+                    Backend.power-off();
+                } else if (item == 1) {
+                    Backend.reboot();
+                } else if (item == 2) {
+                    root.close();
+                }
+            }
+        }
+    }
+}

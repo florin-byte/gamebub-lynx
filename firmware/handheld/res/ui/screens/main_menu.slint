@@ -1,0 +1,158 @@
+import { Theme } from "../theme.slint";
+import { Global, ScreenId, Backend } from "../common.slint";
+import { ScreenBase } from "../components/screen.slint";
+import { Button } from "../components/button.slint";
+
+enum ButtonId {
+    Cart,
+    Cores,
+    Settings,
+    Tools,
+}
+
+global MainMenu {
+    in-out property <ButtonId> last-focus: Cart;
+}
+
+export component MainMenuScreen inherits ScreenBase {
+
+    forward-focus: i-focus-scope;
+    i-focus-scope := FocusScope {
+        focus-changed-event => {
+            if (self.has-focus) {
+                if (MainMenu.last-focus == ButtonId.Cart) {
+                    btn-cart.focus();
+                } else if (MainMenu.last-focus == ButtonId.Cores) {
+                    btn-cores.focus();
+                } else if (MainMenu.last-focus == ButtonId.Settings) {
+                    btn-settings.focus();
+                } else if (MainMenu.last-focus == ButtonId.Tools) {
+                    btn-tools.focus();
+                }
+            }
+        }
+
+        // The logo is drawn from two masks (face and shadow) colored by the theme; the default
+        // colors are those of logo.png.
+        i-logo := Image {
+            source: @image-url("../../logo-face.png");
+            colorize: Theme.logo-face;
+            y: ((50% * parent.height) - self.height) / 2;
+            height: 12px * (Global.window-height / 80px);
+            image-rendering: pixelated;
+            visible: !Global.ui-transparent;
+
+            init => {
+                debug("logo y:", self.absolute-position.y);
+            }
+        }
+
+        Image {
+            source: @image-url("../../logo-shadow.png");
+            colorize: Theme.logo-shadow;
+            x: i-logo.x;
+            y: i-logo.y;
+            width: i-logo.width;
+            height: i-logo.height;
+            image-rendering: pixelated;
+            visible: i-logo.visible;
+        }
+
+
+        VerticalLayout {
+            y: 50% * parent.height;
+            height: 50%;
+            padding: 8px;
+            spacing: 4px;
+
+            HorizontalLayout {
+                spacing: 4px;
+
+                btn-cart := Button {
+                    width: (parent.width - 4px) / 2;
+                    height: 25% * root.height;
+                    text: "Run Cartridge";
+                    on-right => {
+                        if Backend.sdcard-mounted {
+                            btn-cores.focus();
+                        }
+                        accept
+                    }
+                    on-down => {
+                        btn-settings.focus();
+                        MainMenu.last-focus = ButtonId.Cart;
+                        accept
+                    }
+                    on-pressed => {
+                        MainMenu.last-focus = ButtonId.Cart;
+                        Backend.main-menu-run-cartridge();
+                    }
+                }
+
+                btn-cores := Button {
+                    width: (parent.width - 4px) / 2;
+                    height: 25% * root.height;
+                    text: Backend.sdcard-mounted ? "Cores" : "No microSD card";
+                    disabled: !Backend.sdcard-mounted;
+                    on-left => {
+                        btn-cart.focus();
+                        accept
+                    }
+                    on-down => {
+                        btn-tools.focus();
+                        MainMenu.last-focus = ButtonId.Cores;
+                        accept
+                    }
+                    on-pressed => {
+                        MainMenu.last-focus = ButtonId.Cores;
+                        Global.set-screen(ScreenId.Cores);
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 4px;
+
+                btn-settings := Button {
+                    text: "Settings";
+                    width: (parent.width - 4px) / 2;
+                    height: 15% * root.height;
+                    on-up => {
+                        btn-cart.focus();
+                        MainMenu.last-focus = ButtonId.Settings;
+                        accept
+                    }
+                    on-right => {
+                        btn-tools.focus();
+                        accept
+                    }
+                    on-pressed => {
+                        MainMenu.last-focus = ButtonId.Settings;
+                        Global.set-screen(ScreenId.Settings);
+                    }
+                }
+
+                btn-tools := Button {
+                    text: "Tools";
+                    width: (parent.width - 4px) / 2;
+                    height: 15% * root.height;
+                    on-up => {
+                        if Backend.sdcard-mounted {
+                            btn-cores.focus();
+                        }
+                        MainMenu.last-focus = ButtonId.Tools;
+                        accept
+                    }
+                    on-left => {
+                        btn-settings.focus();
+                        accept
+                    }
+                    on-pressed => {
+                        MainMenu.last-focus = ButtonId.Tools;
+                        Global.set-screen(ScreenId.Tools);
+                    }
+                }
+            }
+        }
+    }
+}

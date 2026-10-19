@@ -1,0 +1,54 @@
+[package]
+edition = "2024"
+name = "handheld-dfu"
+rust-version = "1.88"
+version = "0.1.0"
+
+[dependencies]
+esp-hal = { version = "~1.1.0", features = ["esp32s3", "log-04", "unstable"] }
+esp-bootloader-esp-idf = { version = "0.5.0", features = ["esp32s3", "log-04"] }
+esp-rtos = { version = "0.3.0", features = [
+  "embassy",
+  "esp-alloc",
+  "esp32s3",
+  "log-04",
+] }
+esp-alloc = "0.10.0"
+esp-println = { version = "0.17.0", default-features = false, features = [
+  "esp32s3",
+  "log-04",
+  "uart",
+] }
+esp-storage = { version = "0.9", features = ["esp32s3"] }
+esp-sync = { version = "0.2", features = ["esp32s3"] }
+
+embassy-executor = { version = "0.10.0", features = ["log"] }
+embassy-futures = "0.1"
+embassy-sync = "0.7.2"
+embassy-time = { version = "0.5.0", features = ["log"] }
+embassy-usb = { version = "0.5.0", default-features = false }
+embassy-usb-synopsys-otg = "0.3.1"
+
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+embedded-storage = "0.3.1"
+
+log = "0.4.27"
+critical-section = "1.2.0"
+static_cell = "2.1.1"
+ghostfat = { version = "0.5.0", default-features = false }
+usbd_scsi = { version = "0.1.0", default-features = false }
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1        # LLVM can perform better optimizations using a single thread
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false

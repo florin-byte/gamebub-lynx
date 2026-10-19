@@ -1,0 +1,96 @@
+import { Theme } from "../theme.slint";
+import { Global, ScreenId, Backend } from "../common.slint";
+import { ScreenBase } from "../components/screen.slint";
+import { ScrollView } from "../components/scroll_view.slint";
+import { ControlHint } from "../components/control_hint.slint";
+
+export component AboutScreen inherits ScreenBase {
+    title: "About";
+    forward-focus: i-view;
+
+    FocusScope {
+        VerticalLayout {
+            height: 100%;
+            spacing: 2px;
+
+            i-view := ScrollView {
+                VerticalLayout {
+                    spacing: 8px;
+                    padding: 2px;
+                    alignment: start;
+
+                    Text {
+                        color: Theme.fg;
+                        horizontal-alignment: center;
+                        font-weight: 800;
+                        text: "Game Bub™  -  gamebub.net";
+                    }
+
+                    HorizontalLayout {
+                        alignment: center;
+                        spacing: 8px;
+
+                        Text {
+                            color: Theme.fg;
+                            horizontal-alignment: right;
+                            text: ( //
+                                "Device serial:" + //
+                                "\nHardware version:" + //
+                                "\nFirmware version:" + //
+                                (Backend.docked ? //
+                                    "\nDock serial:" + //
+                                    "\nDock firmware version:" //
+                                : ""));
+                        }
+
+                        Text {
+                            color: Theme.fg;
+                            horizontal-alignment: left;
+                            text: ( //
+                                "\{Backend.hardware-serial}" + //
+                                "\n\{Backend.hardware-version}" + //
+                                "\n\{Backend.firmware-version}" + //
+                                (Backend.docked ? //
+                                    "\n\{Backend.dock-serial}" + //
+                                    "\n\{Backend.dock-firmware-version}" //
+                                : ""));
+                        }
+                    }
+
+                    Text {
+                        color: Theme.fg;
+                        horizontal-alignment: center;
+                        text: "Game Bub™ is a trademark of Second Bedroom LLC.\n\nGame Bub is open-source hardware and software. For full license information, including open-source libraries and subcomponents, visit docs.gamebub.net.";
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                alignment: end;
+                ControlHint {
+                    label: "Back";
+                    button: "b";
+                }
+            }
+        }
+
+        key-pressed(event) => {
+            if (event.text == "b") {
+                Global.set-screen(ScreenId.Settings);
+                accept
+            } else {
+                reject
+            }
+        }
+
+        key-released(event) => {
+            if event.text == "Home" && !Global.home-consumed {
+                Global.set-screen(ScreenId.MainMenu);
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+}

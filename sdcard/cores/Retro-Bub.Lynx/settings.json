@@ -1,0 +1,94 @@
+{
+	"settings": [
+		{
+			"id": 0,
+			"label": "Rotation",
+			"address": "0x0",
+			"mask": "0xFFFFFFFC",
+			"type": "list",
+			"items": [
+				{
+					"label": "None",
+					"value": "0x0"
+				},
+				{
+					"label": "Left",
+					"value": "0x1"
+				},
+				{
+					"label": "Right",
+					"value": "0x2"
+				}
+			],
+			"default": "0x0"
+		},
+		{
+			"id": 1,
+			"label": "Flickerblend",
+			"address": "0x0",
+			"mask": "0xFFFFFFF3",
+			"type": "list",
+			"items": [
+				{
+					"label": "Off",
+					"value": "0x0"
+				},
+				{
+					"label": "2 Frames",
+					"value": "0x4"
+				},
+				{
+					"label": "3 Frames",
+					"value": "0x8"
+				}
+			],
+			"default": "0x0"
+		},
+		{
+			"id": 2,
+			"label": "Fast Forward (R)",
+			"address": "0x0",
+			"mask": "0xFFFFFF8F",
+			"type": "list",
+			"items": [
+				{
+					"label": "400%",
+					"value": "0x10"
+				},
+				{
+					"label": "200%",
+					"value": "0x70"
+				},
+				{
+					"label": "160%",
+					"value": "0x50"
+				},
+				{
+					"label": "133%",
+					"value": "0x30"
+				},
+				{
+					"label": "Off",
+					"value": "0x0"
+				}
+			],
+			"default": "0x10"
+		},
+		{
+			"id": 3,
+			"label": "Sync to 60 Hz",
+			"address": "0x0",
+			"mask": "0xFFFFFF7F",
+			"type": "checkbox",
+			"value": "0x80",
+			"default": "0x0"
+		},
+		{
+			"id": 15,
+			"label": "Reset",
+			"address": "0x2000",
+			"type": "action",
+			"value": "0x1"
+		}
+	]
+}

@@ -1,0 +1,188 @@
+import { Theme } from "../../theme.slint";
+import { Global, ScreenId, Backend, BatteryInfo } from "../../common.slint";
+import { ScreenBase } from "../../components/screen.slint";
+import { TextListView } from "../../components/list_view.slint";
+import { ControlHint } from "../../components/control_hint.slint";
+
+export component ToolsScreen inherits ScreenBase {
+    in property <[string]> tools: [
+        "Mount SD Card over USB",
+        "FlashGBX Cartridge Backup / Restore",
+        "Debug battery info"
+    ];
+    private property <int> selected-tool: -1;
+
+    title: "Tools";
+    forward-focus: i-focus-scope;
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.text == "b") {
+                if selected-tool == -1 {
+                    Global.set-screen(ScreenId.MainMenu);
+                }
+                selected-tool = -1;
+                accept
+            } else {
+                reject
+            }
+        }
+
+        if selected-tool == -1: VerticalLayout {
+            height: 100%;
+            spacing: 2px;
+
+            init => {
+                list.focus();
+            }
+
+            list := TextListView {
+                model: root.tools;
+                wrap: true;
+                on-item-selected(i) => {
+                    debug("on-item-selected ", i);
+                    root.selected-tool = i;
+                }
+            }
+
+            HorizontalLayout {
+                alignment: space-between;
+
+                ControlHint {
+                    label: "Back";
+                    button: "b";
+                }
+
+                ControlHint {
+                    label: "Select";
+                    button: "a";
+                }
+            }
+        }
+
+        // Mount SD card over USB
+        if selected-tool == 0: FocusScope {
+            init => {
+                self.focus();
+                if Backend.sdcard-mounted {
+                    Backend.tools-start-usb-drive();
+                }
+            }
+            key-released(event) => {
+                if event.text == "Home" && !Global.home-consumed {
+                    Backend.tools-end-usb-drive();
+                    accept
+                } else {
+                    reject
+                }
+            }
+
+            if Backend.sdcard-mounted: Text {
+                color: Theme.fg;
+                horizontal-alignment: center;
+                text: "Now exposing the SD card as USB drive";
+            }
+
+            if !Backend.sdcard-mounted: Text {
+                color: Theme.fg;
+                horizontal-alignment: center;
+                text: "Error: no SD card mounted";
+            }
+
+            ControlHint {
+                label: "Exit";
+                button: "home";
+                y: root.height - self.height - 8px;
+            }
+        }
+
+        // Cartridge backup / restore
+        if selected-tool == 1: FocusScope {
+            init => {
+                self.focus();
+                Backend.tools-start-cart-reader();
+            }
+            key-released(event) => {
+                if event.text == "Home" && !Global.home-consumed {
+                    Backend.tools-end-cart-reader();
+                    accept
+                } else {
+                    reject
+                }
+            }
+            Text {
+                color: Theme.fg;
+                horizontal-alignment: center;
+                text: "Cartridge Backup and Restore Mode\n\nConnect Game Bub to a computer running FlashGBX\nSee the User Guide for more information";
+            }
+
+            ControlHint {
+                label: "Exit";
+                button: "home";
+                y: root.height - self.height - 8px;
+            }
+        }
+
+        // Debug battery info
+        if selected-tool == 2: FocusScope {
+            private property <BatteryInfo> info;
+            init => {
+                self.focus();
+            }
+
+            Text {
+                color: Theme.fg;
+                y: 8px;
+                horizontal-alignment: center;
+                font-weight: 800;
+                text: "Battery Info";
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 8px;
+                width: 100%;
+                y: (root.height - self.min-height) / 2;
+
+                Text {
+                    color: Theme.fg;
+                    width: 45%;
+                    horizontal-alignment: right;
+                    text: ( //
+                            "Charging:" + //
+                            "\nVBUS Good:" + //
+                            "\nVoltage:" + //
+                            "\nLevel:" + //
+                            "\nCurrent:" //
+                        );
+                }
+
+                Text {
+                    color: Theme.fg;
+                    width: 45%;
+                    horizontal-alignment: left;
+                    text: ( //
+                            "\{info.is-charging ? "yes" : "no"}" + //
+                            "\n\{info.vbus-pgood ? "yes" : "no"}" + //
+                            "\n\{info.voltage.to-fixed(2)} V" + //
+                            "\n\{info.level.to_fixed(2)}%" + //
+                            "\n\{info.current.to-fixed(3)} A" //
+                        );
+                }
+            }
+
+            ControlHint {
+                label: "Back";
+                button: "b";
+                y: root.height - self.height - 8px;
+            }
+
+            Timer {
+                interval: 500ms;
+                triggered => {
+                    info = Backend.tools-get-battery-info();
+                }
+            }
+        }
+    }
+}
