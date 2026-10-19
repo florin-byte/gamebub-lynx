@@ -12,8 +12,9 @@ If you only want to play, take the zip from the [releases](../../releases), you 
 ## Does it work?
 
 - rev2: yes, this is what I use myself. Games, rotation and save states (with my firmware) work.
-- rev4: yes. Toady M built it on Windows with Vivado 2018.2 and it runs on his rev4. The bitstream in the release is
-  built on my machine with Vivado 2025.2 (timing is met, no critical warnings).
+- rev4: yes, tested by other users, but not by me, because I don't own a rev4 Game Bub, only a rev2 one. Toady M
+  built it on Windows with Vivado 2018.2 and it runs on his rev4. The bitstream in the release is built on my
+  machine with Vivado 2025.2 (timing is met, no critical warnings).
 
 For rev4 I had to fix the LCD scaler. On rev4 the picture is centered on column 372 of the 800 wide panel, not on
 400 (`displayOffsetX = -28` in Eli's code), and the scaler was making the Lynx picture 752 wide, so it started off
@@ -30,8 +31,7 @@ If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdA
 
 ## Settings
 
-- Rotation: None / Left / Right. You set it yourself for the games played with the Lynx on the side, the byte in
-  the `.lnx` header is not reliable.
+- Rotation: None / Left / Right. You set it yourself for the games played with the Lynx on the side.
 - Flickerblend: Off / 2 Frames / 3 Frames.
 - Fast Forward (R): how fast it goes while you hold R (400 %, 200 %, 160 %, 133 % or Off). No sound during it.
 - Sync to 60 Hz: the core waits for the screen after every frame, like "Sync core to 60 Hz" on MiSTer. The Lynx
