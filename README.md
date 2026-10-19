@@ -53,8 +53,8 @@ firmware there are no save states.
 
 ## Building the bitstream
 
-What you need: Java 17, Python 3 with `edalize==0.6.7` (see `fpga/framework/requirements.txt`) and Vivado. I use
-2025.2, Toady used 2018.2, both work. On an Apple Silicon Mac the `firtool` that Chisel downloads needs Rosetta 2.
+What you need: Java 17, Python 3 with `edalize==0.6.7` (see `fpga/framework/requirements.txt`) and Vivado (I use
+2025.2). On an Apple Silicon Mac the `firtool` that Chisel downloads needs Rosetta 2.
 On Windows the scripts use `fpga/mill.bat` by themselves.
 
 1. Generate the Vivado project, from the root of the repo:
