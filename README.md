@@ -1,112 +1,103 @@
 # Atari Lynx core for the Game Bub
 
-An unofficial Atari Lynx core for the [Game Bub](https://github.com/elipsitz/gamebub), loaded from the SD card:
-MiSTer's [AtariLynx_MiSTer](https://github.com/MiSTer-devel/AtariLynx_MiSTer) by Robert Peip (commit `3708e45`) on
-Eli Lipsitz's Game Bub framework (1.1.0-beta2), ported by Florin. Not affiliated with the Game Bub project.
+This is the Atari Lynx core for the [Game Bub](https://github.com/elipsitz/gamebub), loaded from the SD card. It is
+the MiSTer core ([AtariLynx_MiSTer](https://github.com/MiSTer-devel/AtariLynx_MiSTer) by Robert Peip) glued to Eli's
+Game Bub framework (1.1.0-beta2). It is not an official Game Bub core, I just ported it.
 
-This repository is Florin's fork of the Game Bub repository, reduced to what the Lynx core needs: the FPGA framework
-and platform, the Lynx core (`net.gamebub.core.lynx.HandheldLynx`), the firmware and the build scripts.
+The repo is my fork of the Game Bub code, cut down to what the Lynx needs: the FPGA framework, the Lynx core, the
+firmware and the scripts to build it.
 
-A ready-to-use rev4 bitstream is attached to the [releases](../../releases).
+If you only want to play, take the zip from the [releases](../../releases), you don't need to build anything.
 
-## Status
+## Does it work?
 
-| | |
-|---|---|
-| Game Bub rev2 | built and tested on the console: games, rotation, the 60 Hz scan-out with three frame stores, save states (with the save-state firmware, below) |
-| Game Bub rev4 | **works on rev4 hardware**: a rev4 tester built these sources with Vivado 2018.2 on Windows and ran them (October 2026). The released bitstream: Vivado 2025.2, WNS +0.586 ns, 0 critical warnings, 69.5 / 135 BRAM |
+- rev2: yes, this is what I use myself. Games, rotation and save states (with my firmware) work.
+- rev4: yes. Toady M built it on Windows with Vivado 2018.2 and it runs on his rev4. The bitstream in the release is
+  built on my machine with Vivado 2025.2 (timing is met, no critical warnings).
 
-rev4 needed one fix in the LCD aspect scaler: it fitted the picture to the panel's 800 columns and then moved it by
-rev4's `displayOffsetX` (-28, the picture centered on column 372), so the Lynx picture at the full height (752
-columns) started at column -4 and the core did not elaborate. The scale now fits the width that stays on the panel
-around that center (744 columns); see `LcdAspectScaler.geometry` and the rev4 test in `LcdAspectScalerSpec`.
+For rev4 I had to fix the LCD scaler. On rev4 the picture is centered on column 372 of the 800 wide panel, not on
+400 (`displayOffsetX = -28` in Eli's code), and the scaler was making the Lynx picture 752 wide, so it started off
+the screen and the core did not even build. Now the scaler keeps the picture inside 744 columns around that center.
+If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdAspectScalerSpec`.
 
-## Where the core lives
+## Install
 
-- `fpga/src/main/scala/net/gamebub/core/lynx/`: the Chisel glue (`HandheldLynx.scala`) and the video buffering of the
-  MiSTer top level reimplemented in Chisel (`LynxVideo.scala`: three frame stores, 60 Hz scan-out, rotation,
-  flickerblend);
-- `fpga/vendor/lynx_mister/`: the vendored MiSTer RTL (`LICENSE`: GPL-2.0); its `README.md` lists every local change;
-- `fpga/src/main/vhdl/lynx/`: `dpram.vhd` (a Vivado-inferable replacement for the Altera RAM wrapper) and
-  `lynxTopWrap.vhd`;
-- `fpga/src/main/scala/platform/handheld/LcdAspectScaler.scala`, `lib/video/PolyphaseScaler.scala`,
-  `net/gamebub/framework/interface/VideoScalerV0.scala`: the platform's aspect scaler, which the core uses for the LCD;
-- `sdcard/`: the core's files for the SD card (see `sdcard/README.md`).
+1. Copy `sdcard/cores/Retro-Bub.Lynx` to the `cores/` folder on your SD card and put the bitstream next to the
+   json files (`lynx-gamebub_rev4.bit` for rev4, `lynx-gamebub_rev2.bit` for rev2).
+2. You need your own Lynx boot rom: `system/lynxboot.img`, 512 bytes. It is not here and it will not be, it is
+   Atari's code, so dump it from your own Lynx. Without it the core will not start.
+3. Games are `.lnx` or `.lyx`.
+
+## Settings
+
+- Rotation: None / Left / Right. You set it yourself for the games played with the Lynx on the side, the byte in
+  the `.lnx` header is not reliable.
+- Flickerblend: Off / 2 Frames / 3 Frames.
+- Fast Forward (R): how fast it goes while you hold R (400 %, 200 %, 160 %, 133 % or Off). No sound during it.
+- Sync to 60 Hz: the core waits for the screen after every frame, like "Sync core to 60 Hz" on MiSTer. The Lynx
+  games run between about 50 and 75 Hz.
+- Reset.
+
+## Save states
+
+The save states are in the bitstream (the MiSTer save state engine), but they need fw changes as well, to move the
+state between the core and the SD card while the game runs. Eli's firmware does not have that, so on the stock
+firmware there are no save states.
+
+- Stock firmware: use `sdcard/cores/Retro-Bub.Lynx`. Everything works except save states. Don't use the other
+  folder with it, the State file will give an error when you exit the game.
+- My firmware (`firmware/handheld/`): use `sdcard/savestate-firmware/cores/Retro-Bub.Lynx`. Then you have State
+  Slot, Save State and Load State (`.ss0` to `.ss3` next to the rom). I tested it on rev2. For rev4 it compiles
+  (`cargo check --features rev4`) but nobody ran it on a rev4 yet. The part that matters is
+  `firmware/handheld/src/core/on_demand.rs`, plus the `on_demand`, `file` and `file_slots` keys in `core/info.rs`
+  and `core/settings.rs`. Build it like the stock one (ESP-IDF 5.4.3, `cargo build --release --features rev4`).
 
 ## Building the bitstream
 
-Requirements: Java 17 (Chisel, through `fpga/mill`), Python 3 with `edalize==0.6.7`
-(`fpga/framework/requirements.txt`), Vivado (2025.2 and 2018.2 were used). On an Apple Silicon Mac the `firtool`
-that Chisel downloads needs Rosetta 2. On Windows the scripts run `fpga/mill.bat` (Mill's Windows launcher) instead
-of `fpga/mill`. The HDMI sources (`fpga/verilog/hdmi`, a submodule upstream) are included as files.
+What you need: Java 17, Python 3 with `edalize==0.6.7` (see `fpga/framework/requirements.txt`) and Vivado. I use
+2025.2, Toady used 2018.2, both work. On an Apple Silicon Mac the `firtool` that Chisel downloads needs Rosetta 2.
+On Windows the scripts use `fpga/mill.bat` by themselves.
 
-1. Elaborate and generate the Vivado project (any OS with Java and Python), from the repository root:
+1. Generate the Vivado project, from the root of the repo:
 
    ```bash
    python3 scripts/rev2/make_vivado_bundle.py --core-class net.gamebub.core.lynx.HandheldLynx --name lynx --target gamebub_rev4
    ```
 
-   The result is `dist/vivado/lynx-gamebub_rev4.zip` (also unpacked next to it): the generated SystemVerilog, the
-   MiSTer VHDL, the board's constraints and the Vivado Tcl scripts. The script lives in `scripts/rev2/` for
-   historical reasons; `--target` selects the board (`gamebub_rev1` to `gamebub_rev4`).
+   You get `dist/vivado/lynx-gamebub_rev4.zip` (and the same folder unpacked next to it). The script is in
+   `scripts/rev2/` only because it started there, `--target` is the board (`gamebub_rev1` to `gamebub_rev4`).
 
-2. Build with Vivado, in the unpacked bundle:
-   - Linux: `make` (the Makefile Edalize generates);
-   - Windows: `build.bat` (set `VIVADO` to `vivado.bat` to pick an installation).
+2. Run Vivado in that folder: `make` on Linux, `build.bat` on Windows (set `VIVADO` to your `vivado.bat` if you have
+   more than one). At the end you have `lynx-gamebub_rev4.bit`.
 
-   The result is `lynx-gamebub_rev4.bit` in the bundle folder.
+Build from a git clone, the firmware build needs the commit hash.
 
-`make_vivado_bundle.py` gives Vivado each file's language and VHDL standard explicitly: the Lynx VHDL is read as
-VHDL-93 (`dpram.vhd` uses a shared variable for its true dual-port RAM, which VHDL-2008 only allows as a protected
-type). The framework's own `fpga/scripts/build_core.py` hands Vivado every generated file as SystemVerilog; it was not
-checked with the Lynx core.
+I use `make_vivado_bundle.py` and not Eli's `fpga/scripts/build_core.py` because it tells Vivado the right language
+for every file. The Lynx VHDL has to be read as VHDL-93 (`dpram.vhd` has a shared variable for the dual port RAM).
+I did not try the Lynx with `build_core.py`.
 
-Build from a git clone: the firmware's build reads the commit hash (`build.rs` runs `git rev-parse HEAD`).
+## Where things are
 
-## SD card
+- `fpga/src/main/scala/net/gamebub/core/lynx/`: my glue for the core. `LynxVideo.scala` is the video part of the
+  MiSTer top, done again in Chisel (3 frame buffers, 60 Hz out, rotation, flickerblend).
+- `fpga/vendor/lynx_mister/`: the MiSTer code. Its `README.md` says what I changed and why.
+- `fpga/src/main/vhdl/lynx/`: `dpram.vhd` (a RAM Vivado understands, instead of the Altera one) and `lynxTopWrap.vhd`.
+- `fpga/src/main/scala/platform/handheld/LcdAspectScaler.scala`, `lib/video/PolyphaseScaler.scala`,
+  `net/gamebub/framework/interface/VideoScalerV0.scala`: the scaler.
+- `sdcard/`: the files for the SD card.
 
-- Copy `sdcard/cores/Retro-Bub.Lynx/` (stock firmware) or `sdcard/savestate-firmware/cores/Retro-Bub.Lynx/` (see
-  Firmware) to the card's `cores/` folder, and put the uncompressed bitstream in it, next to the three JSON files
-  (`core.json` names `lynx-gamebub_rev4.bit` for rev4 and `lynx-gamebub_rev2.bit` for rev2).
-- **The Lynx boot ROM is required and not included** (it is Atari's code): `system/lynxboot.img`, 512 bytes, dumped
-  from your own Lynx. The firmware loads it into the core at start (`lynxboot.vhd` is an empty 512-byte RAM); without
-  the file the core does not start.
-- Games: `.lnx` (with the header) or `.lyx` (headerless). The Lynx has no battery saves.
+## License and credits
 
-Settings:
+- My code here (the Lynx glue, the scaler, the scripts, what I added in the firmware; the list is in
+  `THIRD-PARTY.md`) is GPL-2.0-or-later (`LICENSE-GPL-V2`, `LICENSE-GPL-V3`). The firmware as a whole stays
+  GPL-3.0-only, because it is Eli's GPL-3.0-only program.
+- Eli's framework and firmware, also with my changes in his files, keep his licenses: CERN-OHL-S-2.0 for `fpga/`
+  (`LICENSE-CERN-OHL-S`), GPL-3.0-only for the firmware and the scripts (`LICENSE-GPL-V3`).
+- The Lynx core is GPL-2.0 (`fpga/vendor/lynx_mister/LICENSE`).
 
-- Rotation: None / Left / Right, chosen by hand (a core setting, not read from the `.lnx` header);
-- Flickerblend: Off / 2 Frames / 3 Frames (blends consecutive frames);
-- Fast Forward (R): the speed while R is held (400 %, 200 %, 160 %, 133 %, Off); the sound is muted meanwhile;
-- Sync to 60 Hz: the core waits for the display's 60 Hz frame after each of its frames (MiSTer's "Sync core to
-  60 Hz"; the game sets the Lynx's own frame rate, between about 50 and 75 Hz);
-- Reset; with the save-state firmware also State Slot (1-4), Save State, Load State (`<rom>.ss0`..`.ss3` next to
-  the ROM).
+Everybody whose code is in here, and under which license: `THIRD-PARTY.md`. Thanks to Robert Peip for the Lynx core,
+to Eli for the Game Bub, to minuitfranck and Jeremy O'Brien for the parts I took from their ports, and to Toady M for
+testing on rev4.
 
-## Firmware and save states
-
-The core can save and load states (MiSTer's save-state engine is in the bitstream), but moving a state between the
-core and the SD card while a game runs needs firmware support that the stock Game Bub firmware does not have.
-
-- **Stock firmware (Game Bub 1.1): use `sdcard/cores/Retro-Bub.Lynx/`.** Everything but save states works.
-  Do not use the save-state folder with it: that firmware ignores the save-state keys, treats the State file as an
-  ordinary file and fails to save it when the game is left (an error in the log).
-- **Save states: `sdcard/savestate-firmware/` with the firmware in `firmware/handheld/`.** It adds on-demand core
-  files (transferred while the game runs: `core/on_demand.rs`, the `on_demand` file flag and the `file` /
-  `file_slots` setting keys in `core/info.rs` and `core/settings.rs`). Tested on rev2. For rev4 it compiles
-  (`cargo check --features rev4`) but has not been run on a rev4. Build it as the stock firmware (ESP-IDF 5.4.3,
-  `cargo build --release --features rev4`).
-
-## License
-
-- Florin's own code in this repository (the Lynx glue, the aspect scaler, the build and simulation scripts, the
-  firmware additions; listed in `THIRD-PARTY.md`): GPL-2.0-or-later (`LICENSE-GPL-V2`, `LICENSE-GPL-V3`). Files
-  inside `firmware/` are part of a GPL-3.0-only program, so the firmware as a whole is GPL-3.0-only.
-- Eli Lipsitz's Game Bub framework and firmware, and Florin's changes to those files: their own licenses (FPGA source
-  in `fpga/`: CERN-OHL-S-2.0, `LICENSE-CERN-OHL-S`; firmware and scripts: GPL-3.0-only, `LICENSE-GPL-V3`).
-- Atari Lynx core: GPL-2.0 (`fpga/vendor/lynx_mister/LICENSE`).
-
-Every third-party component, its authors and its license: `THIRD-PARTY.md`.
-
-"Game Bub" is Eli Lipsitz's project and trademark; this core is a community port and uses neither the name nor the
-logo as its own. "Atari" and "Lynx" are trademarks of their owners. No BIOS and no games are included.
+"Game Bub" is Eli's project and trademark, this is a community port. "Atari" and "Lynx" belong to their owners.
+No bios and no games in here.
