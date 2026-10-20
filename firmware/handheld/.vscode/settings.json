@@ -1,0 +1,8 @@
+{
+    "rust-analyzer.server.extraEnv": {
+        "CRATE_CC_NO_DEFAULTS": "1"
+    },
+    "rust-analyzer.cargo.features": [
+        "rev4",
+    ],
+}
