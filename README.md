@@ -43,8 +43,10 @@ The save states are in the bitstream (the MiSTer save state engine), but they ne
 state between the core and the SD card while the game runs. Eli's firmware does not have that, so on the stock
 firmware there are no save states.
 
-- Stock firmware: use `sdcard/cores/Retro-Bub.Lynx`. Everything works except save states. Don't use the other
-  folder with it, the State file will give an error when you exit the game.
+- Stock firmware: use `sdcard/cores/Retro-Bub.Lynx`. Everything works except save states. The other folder now
+  works with it too, without the error at exit: State Slot, Save State and Load State are in the menu but do nothing
+  there. I didn't test that on the stock firmware yet, I read it from Eli's code. I tested the same change on rev2
+  with my firmware, on the Game Gear core.
 - My firmware (`firmware/handheld/`): use `sdcard/savestate-firmware/cores/Retro-Bub.Lynx`. Then you have State
   Slot, Save State and Load State (`.ss0` to `.ss3` next to the rom). I tested it on rev2. For rev4 it compiles
   (`cargo check --features rev4`) but nobody ran it on a rev4 yet. The part that matters is
