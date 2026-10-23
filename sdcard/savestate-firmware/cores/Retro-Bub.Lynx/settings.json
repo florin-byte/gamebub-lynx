@@ -127,6 +127,24 @@
 			"load": true
 		},
 		{
+			"id": 32753,
+			"label": "Swap A/B",
+			"address": "0xF1001208",
+			"mask": "0x0",
+			"type": "list",
+			"items": [
+				{
+					"label": "Off",
+					"value": "0x0B0A0908"
+				},
+				{
+					"label": "On",
+					"value": "0x0A0B0908"
+				}
+			],
+			"default": "0x0B0A0908"
+		},
+		{
 			"id": 15,
 			"label": "Reset",
 			"address": "0x2000",

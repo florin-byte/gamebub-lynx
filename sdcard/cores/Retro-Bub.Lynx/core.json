@@ -15,5 +15,8 @@
 			"target": "gamebub_rev2",
 			"filename": "lynx-gamebub_rev2.bit"
 		}
-	]
+	],
+	"hardware": {
+		"button_remap": true
+	}
 }
