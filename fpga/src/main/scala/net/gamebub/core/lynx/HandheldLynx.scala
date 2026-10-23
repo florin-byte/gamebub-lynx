@@ -1,6 +1,7 @@
 package net.gamebub.core.lynx
 
 import chisel3._
+import net.gamebub.core.StockSaveStateSlots
 import chisel3.util._
 import lib.mem.{MemoryInterface, MemoryMap, PipelineInterfaceBridge, PipelineMemoryArbiter, PipelineMemoryInterface, RegisterMap}
 import lib.mem.sdram.BurstSdramController
@@ -62,6 +63,9 @@ object HandheldLynx {
   /** Core file IDs (files.json). */
   val FileRom = 0
   val FileBios = 1
+  val FileStockStates = 3
+  val StockSlotStride = 0x20000 // Lynx statemanager uses 0x8000 32-bit words per slot.
+  val StockStateBytes = 4 * StockSlotStride
   val FileState = 2
 
   /** Save state (file 2): LynxTop's save-state slot 0, at SDRAM byte StateSdramBase (host address
@@ -213,11 +217,41 @@ class LynxCore extends Module {
   val statRegStateFails = RegInit(0.U(16.W))
   val statRegLynxFrames = RegInit(0.U(32.W))
   val statRegRomReads = RegInit(0.U(32.W))
+  // Unified bitstream: file 2 remains on-demand slot 0; file 3 is a native four-slot image.
+  val regStockLoaded = RegInit(false.B)
+  val regStockFileOpen = RegInit(false.B)
+  val regStockSlot = RegInit(0.U(2.W))
+  val regEngineSlot = RegInit(0.U(2.W))
+  val stockRequest = WireDefault(false.B)
+  val stockLoad = WireDefault(false.B)
+  val stateEngineBusy = Wire(Bool())
+  val stateEngineDone = WireDefault(false.B)
+  val stateEngineOk = WireDefault(true.B)
+  val hostCommandBusy = Wire(Bool())
+  val stock = Module(new StockSaveStateSlots(StateSdramBase, StockSlotStride,
+    sms = false, timeoutCycles = clockSystemHz * 2))
+  stock.io.request := stockRequest
+  stock.io.load := stockLoad
+  stock.io.slot := regStockSlot
+  stock.io.available := regRomLoaded && regStockLoaded && !regStockFileOpen && !regCoreReset
+  stock.io.blocked := stateEngineBusy || hostCommandBusy || io.host.commandHost.request
+  stock.io.gameId := 0.U
+  stock.io.engineDone := stateEngineDone
+  stock.io.engineOk := stateEngineOk
+
   registerInterface <> RegisterMap(
     addressWidth = 16,
     dataWidth = 32,
     entries = Seq(
       0x0000 -> RegisterMap.Entry.rw(configReg),
+      0x0014 -> RegisterMap.Entry(32,
+        read = RegisterMap.ReadFn((_: Bool) => stock.io.status),
+        write = RegisterMap.WriteFn((write: Bool, data: UInt) => when (write && data(1, 0).orR) {
+          stockRequest := true.B
+          stockLoad := data(1)
+        })),
+      0x0018 -> RegisterMap.Entry.rw(regStockSlot),
+      0x001C -> RegisterMap.Entry.r(stock.io.status),
       0x1000 -> RegisterMap.Entry.r(Cat(statRegStateFails, statRegStateOps)),
       0x1004 -> RegisterMap.Entry.r(statRegLynxFrames),
       0x1008 -> RegisterMap.Entry.r(statRegRomReads),
@@ -244,7 +278,7 @@ class LynxCore extends Module {
   }
 
   // SDRAM: host (with the replay tap), cartridge reads, save states
-  val sdramArbiter = Module(new PipelineMemoryArbiter(addressWidth = 25, dataWidth = 32, n = 3))
+  val sdramArbiter = Module(new PipelineMemoryArbiter(addressWidth = 25, dataWidth = 32, n = 4))
   val holdHostWrite = regReplayActive && regReplayStep =/= 0.U
   locally {
     val bridge = Module(new PipelineInterfaceBridge(addressWidth = 25, dataWidth = 32))
@@ -297,6 +331,8 @@ class LynxCore extends Module {
   // Commands
   //////////////////////////////////
   val commandHostState = RegInit(CommandState.idle)
+  hostCommandBusy := commandHostState === CommandState.busy
+  val regStockReadPending = RegInit(false.B)
   val regCommandHost = Reg(Vec(4, UInt(32.W)))
   val regRomEndPending = RegInit(false.B)
   // Save state requested by the host (started by the state machine below).
@@ -335,9 +371,18 @@ class LynxCore extends Module {
       } .elsewhen (command === HostV0.CommandNotifyFocus.U) {
         regCoreFocus := regCommandHost(1)(0)
       } .elsewhen (command === HostV0.CommandFileWriteStart.U) {
-        when (fileId === FileRom.U) {
+        when (fileId === FileState.U && (stock.io.busy || stateEngineBusy || regStockFileOpen)) {
+          commandHostState := CommandState.error
+        } .elsewhen (fileId === FileRom.U) {
           regReplayActive := true.B
           regRomLoaded := false.B
+          regStockLoaded := false.B
+        } .elsewhen (fileId === FileStockStates.U) {
+          when (stock.io.busy || stateEngineBusy) { commandHostState := CommandState.error }
+            .otherwise {
+              regStockFileOpen := true.B
+              regStockLoaded := false.B
+            }
         }
       } .elsewhen (command === HostV0.CommandFileWriteEnd.U) {
         when (fileId === FileRom.U) {
@@ -345,16 +390,34 @@ class LynxCore extends Module {
           regRomSize := regCommandHost(2)(19, 0)
           regRomEndPending := true.B
           commandHostState := CommandState.busy
+        } .elsewhen (fileId === FileStockStates.U) {
+          val valid = regStockFileOpen && regCommandHost(2) === StockStateBytes.U
+          regStockFileOpen := false.B
+          regStockLoaded := valid
+          commandHostState := Mux(valid, CommandState.done, CommandState.error)
+          // Importing the container never restores a slot automatically.
         } .elsewhen (fileId === FileState.U) {
           // The host has written a state into SDRAM: restore it.
-          regStateLoadRequest := regRomLoaded
-          commandHostState := Mux(regRomLoaded, CommandState.busy, CommandState.error)
+          when (regRomLoaded && !stock.io.busy && !stateEngineBusy && !regStockFileOpen) {
+            regEngineSlot := 0.U
+            regStateLoadRequest := true.B
+          }
+          commandHostState := Mux(regRomLoaded && !stock.io.busy && !stateEngineBusy && !regStockFileOpen, CommandState.busy, CommandState.error)
         }
       } .elsewhen (command === HostV0.CommandFileReadStart.U) {
-        when (fileId === FileState.U) {
+        when (fileId === FileStockStates.U) {
+          when (!regStockLoaded || regStockFileOpen) { commandHostState := CommandState.error }
+            .elsewhen (stock.io.busy || stateEngineBusy) {
+              regStockReadPending := true.B
+              commandHostState := CommandState.busy
+            } .otherwise { regCommandHost(0) := StockStateBytes.U }
+        } .elsewhen (fileId === FileState.U) {
           // Save the state into SDRAM; the host reads it once the command is done.
-          regStateSaveRequest := regRomLoaded
-          commandHostState := Mux(regRomLoaded, CommandState.busy, CommandState.error)
+          when (regRomLoaded && !stock.io.busy && !stateEngineBusy && !regStockFileOpen) {
+            regEngineSlot := 0.U
+            regStateSaveRequest := true.B
+          }
+          commandHostState := Mux(regRomLoaded && !stock.io.busy && !stateEngineBusy && !regStockFileOpen, CommandState.busy, CommandState.error)
         }
       } .elsewhen (command(15, 8) === 0x03.U) {
         // Other file commands: nothing to do.
@@ -372,6 +435,18 @@ class LynxCore extends Module {
     commandHostState := CommandState.done
   }
   io.host.commandCore.request := false.B
+  when (!io.host.commandHost.request) { regStockReadPending := false.B }
+  when (regStockReadPending && !stock.io.busy && !stateEngineBusy && io.host.commandHost.request) {
+    regStockReadPending := false.B
+    regCommandHost(0) := StockStateBytes.U
+    commandHostState := CommandState.done
+  }
+  locally {
+    val bridge = Module(new PipelineInterfaceBridge(addressWidth = 25, dataWidth = 32))
+    bridge.io.source <> stock.io.mem
+    bridge.io.dest <> sdramArbiter.io.initiator(3)
+  }
+
 
   //////////////////////////////////
   // Save states
@@ -389,6 +464,12 @@ class LynxCore extends Module {
   val regStateLoaded = RegInit(false.B)
   val regStateTimer = RegInit(0.U(27.W))
   val stateRunning = regStateOp =/= StateOp.idle
+  stateEngineBusy := stateRunning || regStateSaveRequest || regStateLoadRequest
+  when (stock.io.start) {
+    regEngineSlot := stock.io.activeSlot
+    regStateSaveRequest := !stock.io.isLoad
+    regStateLoadRequest := stock.io.isLoad
+  }
   val stateSave = WireDefault(false.B)
   val stateLoad = WireDefault(false.B)
   // Rise of busy: within 50 ms of the request; the whole operation: 1 s.
@@ -396,11 +477,13 @@ class LynxCore extends Module {
   val operationTimeout = clockSystemHz.U
 
   def finishState(ok: Bool): Unit = {
+    stateEngineDone := true.B
+    stateEngineOk := ok
     regStateOp := StateOp.idle
     when (!ok) {
       statRegStateFails := statRegStateFails + 1.U
     }
-    when (commandHostState === CommandState.busy) {
+    when (commandHostState === CommandState.busy && !regStockReadPending) {
       commandHostState := Mux(ok, CommandState.done, CommandState.error)
       // Read start: size of the state file.
       regCommandHost(0) := Mux(ok && !regStateIsLoad, StateBytes.U, 0.U)
@@ -456,7 +539,8 @@ class LynxCore extends Module {
   //////////////////////////////////
   val lynx = Module(new LynxSystem)
   val video = Module(new LynxVideo(periodClocks))
-  val coreReset = regCoreReset || regCoreResetOnce || !regRomLoaded
+  // A stock action already in flight must finish even if exit sends CORE_HALT first.
+  val coreReset = (regCoreReset && !stock.io.busy) || regCoreResetOnce || !regRomLoaded
 
   // Fast forward while R is held (not during a save state); the core's sound is muted meanwhile, as its
   // pitch would be wrong.
@@ -471,7 +555,7 @@ class LynxCore extends Module {
     regSyncWait := true.B
   }
 
-  val running = regRomLoaded && !regCoreReset && (regCoreFocus || stateRunning) && !regSyncWait
+  val running = regRomLoaded && (!regCoreReset || stock.io.busy) && (regCoreFocus || stateRunning) && !regSyncWait
   lynx.io.clk := clock
   lynx.io.reset_in := coreReset
   lynx.io.pause_in := !running
@@ -486,7 +570,7 @@ class LynxCore extends Module {
   lynx.io.bios_wr := regBiosBytes =/= 0.U
   lynx.io.save_state := stateSave
   lynx.io.load_state := stateLoad
-  lynx.io.savestate_number := 0.U
+  lynx.io.savestate_number := regEngineSlot
   ssBusy := lynx.io.ss_busy
   ssStateLoaded := lynx.io.state_loaded
 

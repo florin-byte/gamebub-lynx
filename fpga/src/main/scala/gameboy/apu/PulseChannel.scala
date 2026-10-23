@@ -6,6 +6,8 @@ import chisel3.util._
 class PulseChannelIO extends ChannelIO {
   val lengthConfig = Input(new LengthControlConfig(6))
   val volumeConfig = Input(new VolumeEnvelopeConfig)
+  val volumeWrite = Input(Bool())
+  val volumeWriteData = Input(UInt(8.W))
 
   val wavelength = Input(UInt(11.W))
   val duty = Input(UInt(2.W))
@@ -31,15 +33,13 @@ class PulseChannel extends Module {
   volumeUnit.io.trigger := io.trigger
   volumeUnit.io.config := io.volumeConfig
   volumeUnit.io.tick := io.ticks.volume
+  volumeUnit.io.write := io.volumeWrite
+  volumeUnit.io.writeData := io.volumeWriteData
 
   // Counter within the wave table. Only reset when APU turns off.
   val waveIndex = RegInit(0.U(3.W))
   // Counter that advances the waveIndex.
   val waveCounter = RegInit(0.U(13.W))
-
-  when (io.trigger) {
-    waveCounter := io.wavelength << 2
-  }
 
   when (io.pulse4Mhz) {
     val nextWaveCounter = waveCounter + 1.U
@@ -49,6 +49,10 @@ class PulseChannel extends Module {
       waveCounter := io.wavelength << 2
       waveIndex := waveIndex + 1.U
     }
+  }
+
+  when (io.trigger) {
+    waveCounter := io.wavelength << 2
   }
 
   io.dacEnabled := io.volumeConfig.initialVolume =/= 0.U || io.volumeConfig.modeIncrease
@@ -62,6 +66,7 @@ class PulseChannel extends Module {
     )(io.duty),
     volumeUnit.io.out, 0.U
   )
+  io.maxOut := volumeUnit.io.out
 }
 
 class FrequencySweepConfig extends Bundle {
@@ -153,9 +158,12 @@ class PulseChannelWithSweep extends Module {
   pulseChannel.io.ticks := io.ticks
   pulseChannel.io.lengthConfig := io.lengthConfig
   pulseChannel.io.volumeConfig := io.volumeConfig
+  pulseChannel.io.volumeWrite := io.volumeWrite
+  pulseChannel.io.volumeWriteData := io.volumeWriteData
   pulseChannel.io.wavelength := wavelength
   pulseChannel.io.duty := io.duty
   io.dacEnabled := pulseChannel.io.dacEnabled
   io.channelDisable := pulseChannel.io.channelDisable || freqSweepOverflow
   io.out := pulseChannel.io.out
+  io.maxOut := pulseChannel.io.maxOut
 }

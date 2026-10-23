@@ -147,6 +147,8 @@ static std::set<int> frameList(const char* name) {
     return s;
 }
 
+#include "../stock_savestates/protocol.hpp"
+
 int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     if (argc < 3) { fprintf(stderr, "usage: lynx_core <boot rom> <cartridge> [out prefix]\n"); return 2; }
@@ -182,6 +184,8 @@ int main(int argc, char** argv) {
     command({0x0100});           // core run
     command({0x0200, 1});        // focus
     fprintf(stderr, "files loaded (cartridge %zu bytes) in %llu cycles\n", romSize, (unsigned long long)cycles);
+    if (getenv("STOCK_FILE_TEST")) { runStockFileProtocol(false); delete top; return 0; }
+    if (getenv("STOCK_TEST")) { runStockProtocol(false); delete top; return 0; }
 
     const int size = 160;
     std::vector<uint32_t> fb(size * size, 0);

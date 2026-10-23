@@ -2,18 +2,23 @@
 
 This is the Atari Lynx core for the [Game Bub](https://github.com/elipsitz/gamebub), loaded from the SD card. It is
 the MiSTer core ([AtariLynx_MiSTer](https://github.com/MiSTer-devel/AtariLynx_MiSTer) by Robert Peip) glued to Eli's
-Game Bub framework (1.1.0-beta2). It is not an official Game Bub core, I just ported it.
+Game Bub framework (1.1.0-beta3). It is not an official Game Bub core, I just ported it.
 
 The repo is my fork of the Game Bub code, cut down to what the Lynx needs: the FPGA framework, the Lynx core, the
 firmware and the scripts to build it.
 
 If you only want to play, take the zip from the [releases](../../releases), you don't need to build anything.
 
-## Does it work?
+## Update prepared on 23 Oct 2026
 
-- rev2: yes, this is what I use myself. Games, rotation and save states (with my firmware) work.
-- rev4: yes, tested by other users, but not by me, because I don't own a rev4 Game Bub, only a rev2 one. The
-  bitstream in the release is built on my machine with Vivado 2025.2 (timing is met, no critical warnings).
+The core now uses Eli's beta3 framework and button remapping. One bitstream supports both my on-demand
+save states and the stock beta3 four-slot file. Copy the JSON files together with the matching bitstream.
+
+I tested games, picture/audio, Swap A/B with setting persistence, and on-demand save/load on my rev2 on
+23 Oct, including loading the saved slot after exiting and reopening the game.
+The new rev4 build meets timing, but has not been tested on a rev4 console yet. Older rev4 releases were
+tested by other users. Stock save states are ready for other users to test; I have not tested that path
+on stock firmware. These packages are prepared locally and are not published yet.
 
 For rev4 I had to fix the LCD scaler. On rev4 the picture is centered on column 372 of the 800 wide panel, not on
 400 (`displayOffsetX = -28` in Eli's code), and the scaler was making the Lynx picture 752 wide, so it started off
@@ -35,13 +40,15 @@ If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdA
 - Fast Forward (R): how fast it goes while you hold R (400 %, 200 %, 160 %, 133 % or Off). No sound during it.
 - Sync to 60 Hz: the core waits for the screen after every frame, like "Sync core to 60 Hz" on MiSTer. The Lynx
   games run between about 50 and 75 Hz.
+- Swap A/B (right before Reset): swaps the handheld A and B buttons for this core. Menus stay unchanged.
+  It is off by default and the core keeps its setting after exit. Docked gamepads use their separate Dock setting.
 - Reset.
 
 ## Save states
 
-This branch prepares the JSON files for a new unified bitstream. That bitstream is not released yet and its
-RTL has not been ported into this public repo yet. Use a released archive until the matching bitstream is
-available. I have not tested the new stock save-state path on hardware yet.
+The unified RTL and both sets of JSON files are in this branch. Use the matching new bitstream; older
+bitstreams do not support the new register map or the stock container. I tested the on-demand path on rev2.
+The stock firmware path is not hardware-tested by me and is left for other users to test.
 
 - Stock firmware (1.1.0-beta3): use `sdcard/cores/Retro-Bub.Lynx` with the matching new bitstream. State Slot, Save State
   and Load State use four slots in `<rom>.lnxstate` (512 KiB), loaded when the game starts and written when you
@@ -52,8 +59,8 @@ available. I have not tested the new stock save-state path on hardware yet.
   files is unchanged. The new stock container and the individual files are separate; there is no automatic
   conversion between them.
 
-Both folders use the same new bitstream. The `.sav` battery-save configuration is unchanged. The notes below
-explain the existing on-demand method; earlier hardware results apply to that method, not the new stock path.
+Both folders use the same new bitstream. Existing ROM, BIOS and ordinary save definitions are unchanged.
+The hardware results above apply to the on-demand method, not the new stock path.
 
 ## How the save states work in my firmware
 
@@ -87,6 +94,13 @@ In the json files it looks like this (see `sdcard/savestate-firmware/`):
 If you want save states in your own firmware, these are the parts to take: `core/on_demand.rs`, the `on_demand`
 flag and the `file` / `file_slots` keys in `core/info.rs`, and the few lines in `core/settings.rs` that send these
 actions to `on_demand.rs` instead of writing them to the core.
+
+## How Swap A/B works
+
+The list at `0xF1001208` writes `0x0B0A0908` for Off and `0x0A0B0908` for On, setting ID `0x7FF1`.
+`hardware.button_remap` lets my firmware add the setting if JSON does not already contain it.
+In framework v2, `0xF1001018` is video darken; do not use an older Swap A/B checkbox there with this bitstream.
+I tested handheld A/B mapping on rev2. Docked gamepads keep their separate Dock setting.
 
 ## Building the bitstream
 

@@ -5,6 +5,7 @@ import chisel3.util._
 import gameboy.Gameboy
 import gameboy.cart.emu.{EmuCartConfig, EmuCartridge, Mbc3RtcAccess, RtcState}
 import HandheldGameboy.{CommandState, SaveStateCommand}
+import lib.audio.AudioFilterChain
 import lib.mem.{MemoryInterface, MemoryMap, PipelineInterfaceBridge, RegisterMap}
 import lib.mem.MemoryArbiter
 import lib.mem.PipelineMemoryArbiter
@@ -299,15 +300,21 @@ class HandheldGameboy extends Module with Core {
   dmgPaletteInterface.dataRead := 0.U
   dmgPaletteInterface.done := RegNext(dmgPaletteInterface.enable)
 
+  // Reset
+  val regCoreResetCombined = RegInit(true.B)
+  regCoreResetCombined := false.B
+  // A save-state load resets the core only; the physical cartridge reset below is separate.
+  when (regCoreReset || regCoreResetOnce || ssResetCore) {
+    regCoreResetCombined := true.B
+  }
+
   // Gameboy
   val gameboyConfig = Gameboy.Configuration(
     skipBootrom = false,
     optimizeForSimulation = false,
   )
   val gameboy = Module(new Gameboy(gameboyConfig))
-  when (regCoreReset || regCoreResetOnce || ssResetCore) {
-    gameboy.reset := true.B
-  }
+  gameboy.reset := regCoreResetCombined
   gameboy.io.isCgb := configRegSystem.isCgb
 
   // Save-state walker, between the core's save-state window and SDRAM.
@@ -359,8 +366,18 @@ class HandheldGameboy extends Module with Core {
   io.pmod.out := DontCare
   io.pmod.dir := 0.U(4.W)
 
-  io.audio.left := gameboy.io.apu.left << 6
-  io.audio.right := gameboy.io.apu.right << 6
+  // Audio output and filtering
+  val audioFilter = Module(new AudioFilterChain(
+    inputRateHz = io.clocks.clockSystemHz,
+    cicR = (io.clocks.clockSystemHz.toFloat / (4 * 48000)).ceil.toInt,
+    dataBits = 16,
+    outputRateHz = 48000,
+  ))
+  val audioShift = audioFilter.dataBits - 10
+  audioFilter.io.in(0) := gameboy.io.apu.left << audioShift
+  audioFilter.io.in(1) := gameboy.io.apu.right << audioShift
+  io.audio.left := audioFilter.io.out(0)
+  io.audio.right := audioFilter.io.out(1)
 
   // Link port
   io.link.soOut := gameboy.io.serial.out
@@ -574,10 +591,18 @@ class HandheldGameboy extends Module with Core {
     )
 
     // Pin 30: nRST
-    // TODO: open-drain bidirectional
-    io.cartridge.pin30Dir := true.B
-    io.cartridge.pin30Out := gameboy.io.cartridge.nResetOut
-    gameboy.io.cartridge.nResetIn := io.cartridge.pin30In
+    // *Bidirectional* open-drain active-low reset
+    // 1) Held low by the device during power up
+    // 2) The cartridge can *also* hold it low to reset the device
+    val resetDir = RegInit(true.B)
+    io.cartridge.pin30Dir := resetDir
+    io.cartridge.pin30Out := false.B
+    // When the core is resetting, hold the pin low.
+    resetDir := regCoreReset || regCoreResetOnce
+    // When the pin is low... reset the core.
+    when (RegNext(RegNext(io.cartridge.pin30In)) === 0.U) {
+      regCoreResetCombined := true.B
+    }
 
     // Pin 31: VIN
     io.cartridge.pin31Dir := false.B

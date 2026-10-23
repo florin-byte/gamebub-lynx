@@ -28,6 +28,24 @@ pub const REG_CTRL_BUTTON_FORCE: u32 = 0xF100_1008;
 pub const REG_CTRL_DOCK: u32 = 0xF100_100C;
 pub const REG_CTRL_FOCUS: u32 = 0xF100_1010;
 pub const REG_CTRL_VIBRATE: u32 = 0xF100_1014;
+/// Framework v2: bit 0 darkens video; never use this register for Swap A/B.
+pub const REG_CTRL_VIDEO_FILTER: u32 = 0xF100_1018;
+/// Framework v2 button-remap entries 8..11 (Y, X, B, A), one source index per byte.
+pub const REG_CTRL_BUTTON_REMAP_AB: u32 = 0xF100_1208;
+pub const BUTTON_REMAP_AB_OFF: u32 = 0x0B0A_0908;
+pub const BUTTON_REMAP_AB_ON: u32 = 0x0A0B_0908;
+
+pub const fn button_remap_ab_value(swapped: bool) -> u32 {
+    if swapped {
+        BUTTON_REMAP_AB_ON
+    } else {
+        BUTTON_REMAP_AB_OFF
+    }
+}
+
+pub const fn button_remap_ab_enabled(value: u32) -> bool {
+    value == BUTTON_REMAP_AB_ON
+}
 
 pub const REG_CTRL_CMD_HOST: u32 = 0xF100_1100;
 pub const REG_CTRL_CMD_CORE: u32 = 0xF100_1104;
@@ -41,7 +59,7 @@ pub const REG_CMD_CORE_BASE: u32 = 0xF000_1000;
 /// The FPGA (due to the spi implementation) can read at a speed that's some
 /// fraction of the SPI domain clock speed. At 200 MHz SPI receiver clock,
 /// 16 MHz is a safe speed.
-pub const MAX_SPI_READ_CLOCK: Hertz = Hertz(16_000_000);
+pub const MAX_SPI_READ_CLOCK: Hertz = Hertz(10_000_000);
 
 pub type SpiDataDriver<'a> =
     SpiSoftCsDeviceDriver<'a, SpiSharedDeviceDriver<'a, &'a SpiDriver<'a>>, &'a SpiDriver<'a>>;

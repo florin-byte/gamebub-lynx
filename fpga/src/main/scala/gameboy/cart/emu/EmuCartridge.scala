@@ -83,7 +83,6 @@ class EmuCartridge(clockRate: Int) extends Module {
   io.rumble := mbc.io.rumble
   mbc.io.imu := io.imu
 
-  io.cartridge.nResetIn := true.B  // Inactive
   io.dataAccess.enable := false.B
   io.dataAccess.write := io.cartridge.reqWrite
   io.dataAccess.selectRom := io.cartridge.reqRom

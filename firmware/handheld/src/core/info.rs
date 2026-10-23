@@ -26,6 +26,9 @@ pub struct CoreInfo {
     pub settings: Vec<CoreSetting>,
     pub bitstream: PathBuf,
     pub uses_cartridge: CoreCartridgeMode,
+    /// The bitstream has framework-v2 button-remap registers: add a "Swap A/B" list
+    /// to the core's menu (see `add_swap_ab_setting`). Legacy hardware.swap_ab is ignored.
+    pub button_remap: bool,
     /// Cheats chosen in the core's menu, from the game's `.cht` (see `core/cheats.rs`).
     pub cheats: Option<CoreCheats>,
 }
@@ -267,10 +270,14 @@ pub fn list_cores() -> Vec<CoreListEntry> {
 /// TODO: better error type?
 pub fn get_core(id: &str) -> Result<CoreInfo, String> {
     // Handle built-in cores.
-    match id {
-        "Game-Bub.GB" => return Ok(crate::bitstream::gameboy::Gameboy::get_core_info()),
-        "Game-Bub.GBA" => return Ok(crate::bitstream::gba::Gba::get_core_info()),
-        _ => {}
+    let built_in = match id {
+        "Game-Bub.GB" => Some(crate::bitstream::gameboy::Gameboy::get_core_info()),
+        "Game-Bub.GBA" => Some(crate::bitstream::gba::Gba::get_core_info()),
+        _ => None,
+    };
+    if let Some(mut core) = built_in {
+        add_swap_ab_setting(&mut core);
+        return Ok(core);
     }
 
     #[derive(Deserialize)]
@@ -293,6 +300,9 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
         #[serde(default)]
         #[expect(unused)]
         pub cartridge_selectable: bool,
+        /// The bitstreams have framework-v2 button-remap registers.
+        #[serde(default)]
+        pub button_remap: bool,
     }
 
     #[derive(Deserialize)]
@@ -364,18 +374,80 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
         }
     };
 
-    Ok(CoreInfo {
+    let mut core = CoreInfo {
         id: json_core.metadata.id,
         name: json_core.metadata.name,
         author: json_core.metadata.author,
         uses_cartridge: json_core.hardware.cartridge_enable,
+        button_remap: json_core.hardware.button_remap,
         is_built_in: false,
         files,
         bitstream: core_dir.join(bitstream),
         settings,
         core_dir,
         cheats: json_core.cheats,
-    })
+    };
+    add_swap_ab_setting(&mut core);
+    Ok(core)
+}
+
+/// Add the framework-v2 "Swap A/B" list before Reset, unless JSON already defines the remap.
+/// The register is write-only (mask 0); Off must write the identity map, not zero.
+/// A new ID and new built-in KVS keys keep legacy checkbox values out of this register.
+fn add_swap_ab_setting(core: &mut CoreInfo) {
+    if !core.button_remap {
+        return;
+    }
+    // A settings.json made for the stock firmware can have its own entry for the register: keep only that one.
+    if core.settings.iter().any(|s| s.address == fpga::REG_CTRL_BUTTON_REMAP_AB) {
+        return;
+    }
+    if core.settings.iter().any(|s| s.id == super::SETTING_SWAP_AB) {
+        log::warn!(
+            "Core setting id {} is reserved for Swap A/B, not adding it",
+            super::SETTING_SWAP_AB
+        );
+        return;
+    }
+    let index = core
+        .settings
+        .iter()
+        .rposition(is_reset_action)
+        .unwrap_or(core.settings.len());
+    core.settings.insert(
+        index,
+        CoreSetting {
+            id: super::SETTING_SWAP_AB,
+            label: "Swap A/B".into(),
+            address: fpga::REG_CTRL_BUTTON_REMAP_AB,
+            mask: 0,
+            default: fpga::BUTTON_REMAP_AB_OFF,
+            inner: CoreSettingType::List {
+                items: [
+                    CoreSettingListItem {
+                        label: "Off".into(),
+                        value: fpga::BUTTON_REMAP_AB_OFF,
+                    },
+                    CoreSettingListItem {
+                        label: "On".into(),
+                        value: fpga::BUTTON_REMAP_AB_ON,
+                    },
+                ]
+                .into_iter()
+                .collect(),
+                file_slots: None,
+            },
+        },
+    );
+}
+
+/// The core's Reset entry: an action that writes a core register. Every other action in the cores' menus is
+/// handled by the firmware (save / load state, at the "not a register" address `0xFFFF_FFFF`) or transfers a
+/// file. Matched by kind rather than by label or address: the label differs ("Reset", "Reset Core") and so
+/// does the register (`0x2000` for most cores, `0x0` for Mega Drive).
+fn is_reset_action(setting: &CoreSetting) -> bool {
+    matches!(setting.inner, CoreSettingType::Action { file: None, .. })
+        && setting.address != 0xFFFF_FFFF
 }
 
 fn get_device_target() -> &'static str {

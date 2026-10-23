@@ -8,6 +8,9 @@ import { ScrollView } from "../components/scroll_view.slint";
 component ControlsPage inherits Rectangle {
     in property <int> step;
     private property <color> highlight: #761C92;
+    // rev2 is held upright: its own drawing (scripts/rev2/make_device_rev2.py), volume on the left side and power
+    // on the right side.
+    private property <bool> rev2: Backend.device-rev2;
 
     private property <int> tick: 0;
     private property <bool> anim: mod(tick, 5) < 3;
@@ -20,39 +23,40 @@ component ControlsPage inherits Rectangle {
     }
 
     Image {
-        source: @image-url("../../device.png");
+        source: rev2 ? @image-url("../../device-rev2.png") : @image-url("../../device.png");
         x: (50% * root.width) - (self.width / 2);
-        y: (50% * root.height) - (self.height / 2);
+        // Below the text on rev2, the drawing is taller than wide.
+        y: rev2 ? 38px : (50% * root.height) - (self.height / 2);
         // width: 198px * 1.5;
         image-rendering: pixelated;
         colorize: Theme.text;
 
         if step == 0: Rectangle {
             background: highlight;
-            width: 8px;
-            height: 8px;
-            x: 181px;
-            y: 30px;
+            width: rev2 ? 7px : 8px;
+            height: rev2 ? 7px : 8px;
+            x: rev2 ? 65px : 181px;
+            y: rev2 ? 72px : 30px;
             border-radius: 3px;
             visible: anim;
         }
 
         if step == 1: Rectangle {
             background: highlight;
-            width: 8px;
-            height: 8px;
-            x: 173px;
-            y: 38px;
+            width: rev2 ? 7px : 8px;
+            height: rev2 ? 7px : 8px;
+            x: rev2 ? 59px : 173px;
+            y: rev2 ? 78px : 38px;
             border-radius: 3px;
             visible: anim;
         }
 
         if step == 2: Rectangle {
             background: highlight;
-            width: 4px;
-            height: 2px;
-            x: 135px;
-            y: 1px;
+            width: rev2 ? 2px : 4px;
+            height: rev2 ? 6px : 2px;
+            x: rev2 ? 78px : 135px;
+            y: rev2 ? 12px : 1px;
             visible: anim;
         }
 
@@ -60,27 +64,27 @@ component ControlsPage inherits Rectangle {
             background: highlight;
             width: 5px;
             height: 5px;
-            x: 29px;
-            y: 68px;
+            x: rev2 ? 38px : 29px;
+            y: rev2 ? 84px : 68px;
             border-radius: 3px;
             visible: step == 5 || anim;
         }
         if step == 4 || step == 5: Rectangle {
             Rectangle {
                 background: highlight;
-                width: 6px;
-                height: 2px;
-                x: 145px;
-                y: 1px;
+                width: rev2 ? 2px : 6px;
+                height: rev2 ? 6px : 2px;
+                x: rev2 ? 0px : 145px;
+                y: rev2 ? 22px : 1px;
                 visible: tick >= 0 && tick < 4;
             }
 
             Rectangle {
                 background: highlight;
-                width: 6px;
-                height: 2px;
-                x: 155px;
-                y: 1px;
+                width: rev2 ? 2px : 6px;
+                height: rev2 ? 6px : 2px;
+                x: rev2 ? 0px : 155px;
+                y: rev2 ? 30px : 1px;
                 visible: tick >= 5 && tick < 9;
             }
         }
@@ -88,6 +92,8 @@ component ControlsPage inherits Rectangle {
 
     Image {
         source: @image-url("../../logo.png");
+        // Does not fit in the rev2 drawing's screen.
+        visible: !rev2;
         x: (50% * root.width) - (self.width / 2);
         y: (50% * root.height) - (self.height / 2);
         // height: 12px * 1.5;
@@ -125,7 +131,8 @@ component ControlsPage inherits Rectangle {
 
         if step == 5: Text {
             color: Theme.fg;
-            text: "Press Home + Volume to adjust brightness";
+            // The long text does not fit on the 240 px wide rev2 UI.
+            text: rev2 ? "Press Home + Volume for brightness" : "Press Home + Volume to adjust brightness";
         }
     }
 

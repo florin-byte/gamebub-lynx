@@ -7,6 +7,7 @@ import { ScrollingText } from "scrolling_text.slint";
 export enum FileIcon {
     blank,
     folder,
+    nope,
 }
 
 export struct FileListEntry {
@@ -22,6 +23,8 @@ component FileListItem {
     pure function iconToImage(icon: FileIcon) -> image {
         if (icon == FileIcon.folder) {
             Icons.folder
+        } else if (icon == FileIcon.nope) {
+            Icons.nope
         } else {
             Icons.empty
         }

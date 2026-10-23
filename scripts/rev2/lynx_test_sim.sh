@@ -16,7 +16,7 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/../.." && pwd)"
-OUT="$REPO/build/lynx-sim"
+OUT="${SIM_OUT:-$REPO/build/lynx-sim}"
 SIM="$REPO/fpga/sim/lynx"
 
 build() {

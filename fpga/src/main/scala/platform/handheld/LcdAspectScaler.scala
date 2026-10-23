@@ -115,7 +115,8 @@ class LcdAspectScaler(
   val regFilter = RegInit(0.U(2.W))
   when (frameStart) {
     regMode := Mux(io.mode < modes.size.U, io.mode, 0.U)
-    regFilter := Mux(io.filter <= VideoScalerV0.FilterBilinear.U, io.filter, VideoScalerV0.FilterSharpBilinear.U)
+    // Every 2-bit value is a filter: Integer, Sharp Bilinear, Bilinear or Nearest (same geometry for all).
+    regFilter := io.filter
   }
   io.active := regFilter =/= VideoScalerV0.FilterInteger.U
 

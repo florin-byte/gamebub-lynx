@@ -5,8 +5,8 @@ import chisel3.util._
 
 /**
  * Optional interface: lets the platform scale the core's video to fill the display while keeping its
- * aspect ratio (non-integer scale with a Sharp Bilinear or Bilinear filter), instead of the default
- * integer scale.
+ * aspect ratio (non-integer scale with a Sharp Bilinear, Bilinear or Nearest filter), instead of the
+ * default integer scale.
  *
  * The core declares its display modes at elaboration: each mode is a window of the framebuffer (the
  * part of the video output that holds the game picture) and the shape of its pixels. At run time it
@@ -26,7 +26,7 @@ class VideoScalerV0(
 
   /// Current mode (index in `modes`).
   val mode = Output(UInt(log2Ceil(modes.size.max(2)).W))
-  /// Scaling: VideoScalerV0.FilterInteger, FilterSharpBilinear or FilterBilinear.
+  /// Scaling: VideoScalerV0.FilterInteger, FilterSharpBilinear, FilterBilinear or FilterNearest.
   val filter = Output(UInt(2.W))
 }
 
@@ -47,4 +47,7 @@ object VideoScalerV0 {
   val FilterSharpBilinear = 1
   /// Aspect-correct scale, Bilinear filter.
   val FilterBilinear = 2
+  /// Aspect-correct scale, nearest neighbour (no blending: every screen pixel is one source pixel; at a
+  /// non-integer scale some source pixels are one screen pixel wider than others).
+  val FilterNearest = 3
 }

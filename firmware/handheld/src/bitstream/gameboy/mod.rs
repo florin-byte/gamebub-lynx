@@ -129,6 +129,8 @@ impl Gameboy {
             is_built_in: true,
             core_dir: PathBuf::new(),
             uses_cartridge: CoreCartridgeMode::IfSelected,
+            // Requires the matching framework-v2 system_data packaged with this firmware.
+            button_remap: true,
             files: [
                 CoreFile {
                     id: SETTING_RESET,
@@ -138,7 +140,8 @@ impl Gameboy {
                         .collect(),
                     filename: None,
 
-                    optional: true,
+                    // Note: actually optional, with the Run Cartridge option.
+                    optional: false,
                     read_only: true,
                     user_selected: true,
                     dependent_on_0: false,
@@ -265,14 +268,6 @@ impl Gameboy {
                     inner: CoreSettingType::Action { value: 1, file: None, load: false },
                 },
                 CoreSetting {
-                    id: 0,
-                    label: "Reset Core".into(),
-                    address: REG_RESET_ONCE,
-                    mask: 0,
-                    default: 0,
-                    inner: CoreSettingType::Action { value: 1, file: None, load: false },
-                },
-                CoreSetting {
                     id: SETTING_GB_MODE,
                     label: "Enable GB Mode".into(),
                     address: 0xFFFF_FFFF,
@@ -315,6 +310,14 @@ impl Gameboy {
                             .collect(),
                         file_slots: None,
                     },
+                },
+                CoreSetting {
+                    id: 0,
+                    label: "Reset Core".into(),
+                    address: REG_RESET_ONCE,
+                    mask: 0,
+                    default: 0,
+                    inner: CoreSettingType::Action { value: 1, file: None, load: false },
                 },
             ]
             .into_iter()
@@ -514,6 +517,11 @@ impl CoreHandler for Gameboy {
                 SETTING_GB_COLOR_PALETTE,
                 kvs::keys::DMG_COLOR_PALETTE.get().unwrap() as u32,
             ),
+            // Used only if the menu has the entry (CoreInfo::button_remap).
+            (
+                crate::core::SETTING_SWAP_AB,
+                fpga::button_remap_ab_value(kvs::keys::GB_BUTTON_REMAP.get().unwrap()),
+            ),
         ]
     }
 
@@ -530,6 +538,11 @@ impl CoreHandler for Gameboy {
                     extension: Self::state_extension(self.state_slot),
                     label: format!("slot {}", self.state_slot + 1),
                 });
+                return;
+            }
+            crate::core::SETTING_SWAP_AB => {
+                // The core manager writes the register; only store the value here.
+                kvs::keys::GB_BUTTON_REMAP.set(&fpga::button_remap_ab_enabled(value));
                 return;
             }
             _ => {}

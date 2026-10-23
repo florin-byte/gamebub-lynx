@@ -4,7 +4,7 @@ import chisel3._
 import chisel3.util._
 
 /**
- * Separable 2-tap polyphase upscaler (Sharp Bilinear / Bilinear) for non-integer scales on a display
+ * Separable 2-tap polyphase upscaler (Sharp Bilinear / Bilinear / Nearest) for non-integer scales on a display
  * that scans the source image column by column (the rotated LCD panels: one panel line = one output
  * column, rows on the fast axis).
  *
@@ -29,7 +29,7 @@ object PolyphaseScaler {
   val NumPhases = 64    // phase resolution (top 6 of the 8 fractional bits)
   val CoeffBits = 8     // unsigned Q1.7 coefficients; each phase sums to 128
   val NumBuffers = 3    // ring: 2 in-window columns + 1 prefetched
-  val NumFilters = 2    // 1 = Sharp Bilinear, 2 = Bilinear
+  val NumFilters = 3    // 1 = Sharp Bilinear, 2 = Bilinear, 3 = Nearest
 
   /** Framebuffer read latency (address to data) the module expects. */
   val FramebufferReadLatency = 3
@@ -55,6 +55,8 @@ object PolyphaseScaler {
       case 1 => // Sharp Bilinear: steep ramp around the half phase
         val fw = clampUnit((frac - 0.5) * sharpSlope + 0.5)
         Array(math.round((1 - fw) * 128).toInt, math.round(fw * 128).toInt)
+      case 3 => // Nearest: the source pixel under the sample position (ties go to n + 1)
+        if (frac < 0.5) Array(128, 0) else Array(0, 128)
       case _ => // Bilinear
         Array(math.round((1 - frac) * 128).toInt, math.round(frac * 128).toInt)
     }
@@ -105,7 +107,8 @@ class PolyphaseScaler(
     /** Restart the prefetch (start of a display frame). */
     val frameStart = Input(Bool())
 
-    /** 1 = Sharp Bilinear, 2 = Bilinear (0 is not a filter: the caller reads the framebuffer itself). */
+    /** 1 = Sharp Bilinear, 2 = Bilinear, 3 = Nearest (0 is not a filter: the caller reads the framebuffer
+      * itself). */
     val filter = Input(UInt(2.W))
     /** Index in sharpSlopesX / sharpSlopesY of the slope for each axis. */
     val slopeSelectX = Input(UInt(log2Ceil(sharpSlopesX.size.max(2)).W))

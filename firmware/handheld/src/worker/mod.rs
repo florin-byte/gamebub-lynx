@@ -132,7 +132,7 @@ fn dispatch(message: Message) {
             device.change_display_mode(DisplayMode::Internal).unwrap();
         }
         Message::PowerRefresh => {
-            crate::power::PowerManager::lock().refresh(&mut Device::lock());
+            crate::power::PowerManager::lock().refresh();
         }
         Message::IdleTimerExpired => {
             // If the idle timer expires during setup, just power off.

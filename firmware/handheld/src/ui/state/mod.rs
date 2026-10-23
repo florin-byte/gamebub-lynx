@@ -73,6 +73,7 @@ impl UiState {
         backend.set_hardware_version(crate::hwinfo::get_hardware_version().to_string().into());
         backend.set_hardware_serial(crate::hwinfo::get_serial_number().to_string().into());
         backend.set_firmware_version(env!("CARGO_PKG_VERSION").into());
+        backend.set_device_rev2(cfg!(feature = "rev2"));
         backend.set_sdcard_mounted(std::fs::exists("/sdcard").unwrap_or(false));
 
         // Status bar clock, the 12/24-hour preference and the theme, refreshed once per second.
@@ -209,7 +210,7 @@ impl UiState {
 }
 
 /// Theme names, as shown in Settings (index = `UI_THEME`).
-pub const THEME_NAMES: &[&str] = &["Game Bub", "DMG", "GBC", "GBA", "NES"];
+pub const THEME_NAMES: &[&str] = &["Game Bub", "DMG", "GBC", "GBA", "NES", "Sky"];
 
 /// One set of UI colors, as 0xRRGGBB (see res/ui/theme.slint for what each is used for).
 struct ThemeColors {
@@ -318,6 +319,26 @@ const THEMES: &[(ThemeColors, ThemeColors)] = &[
             logo_shadow: 0x7A1010,
             ..console_theme(0x181818, 0x2C2C24, 0x222218, 0xE4E4D4, 0x888878, 0xE4E4D4, 0x585848,
                 0x6A1E1E, 0xB80000, 0xE40000, 0x585848, 0x222218)
+        },
+    ),
+    // Sky, after a blue case with white lettering and clouds, a yellow D-pad and a red A button.
+    (
+        // Pale sky, white (cloud) boxes, the case blue in the status bar, yellow (D-pad) selection and logo, red
+        // level.
+        ThemeColors {
+            status_fg: 0xFFFFFF,
+            logo_face: 0xF2CF2E,
+            logo_shadow: 0x0A2A47,
+            ..console_theme(0xCFE8F8, 0xFFFFFF, 0xA8D2F0, 0x0A2A47, 0x3C6F99, 0x1F7EC4, 0x7FB2DA,
+                0xF2CF2E, 0x1F7EC4, 0xE0352B, 0x7FB2DA, 0xA8D2F0)
+        },
+        // The case blue as the background, the logo white like the lettering on the case, yellow level.
+        ThemeColors {
+            status_fg: 0xFFFFFF,
+            logo_face: 0xFFFFFF,
+            logo_shadow: 0x0F4E80,
+            ..console_theme(0x1F7EC4, 0x3A95D6, 0x1A6CA8, 0xFFFFFF, 0xC4E2F8, 0xFFFFFF, 0x8CC4EC,
+                0x0F4E80, 0x0F4E80, 0xF2CF2E, 0x8CC4EC, 0x1A6CA8)
         },
     ),
 ];

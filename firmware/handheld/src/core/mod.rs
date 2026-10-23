@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, BufWriter, ErrorKind, Write},
+    io::{BufReader, BufWriter, ErrorKind, Read, Write},
     ops::DerefMut as _,
     path::{Path, PathBuf},
     sync::{LazyLock, Mutex, MutexGuard},
@@ -38,6 +38,8 @@ const FILE_LIST_MAX: usize = 100;
 const PROGRESS_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
 const NOTIFY_TIMEOUT: Duration = Duration::from_millis(10);
 const SETUP_TIMEOUT: Duration = Duration::from_millis(100);
+/// Only perform background I/O when reading files at least this large.
+const BG_IO_THRESHOLD: usize = 512 * 1024;
 
 #[allow(unused)]
 mod command {
@@ -62,6 +64,12 @@ mod command {
 
 pub const DIR_SDCARD: &str = "/sdcard/";
 pub const DIR_SETTINGS: &str = "/sdcard/settings/";
+
+/// Framework-v2 "Swap A/B" list ID (CoreInfo::button_remap). Do not reuse the legacy
+/// 0x7FF0 checkbox ID: its stored 0/1 values are not valid button-remap words.
+/// A JSON entry at the remap address takes precedence over the generated entry.
+pub const SETTING_SWAP_AB: u16 = 0x7FF1;
+
 pub const CORE_POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct CoreManager {
@@ -688,8 +696,7 @@ impl CoreManager {
             let mut transfer_duration = Duration::ZERO;
             let mut handler_duration = Duration::ZERO;
             let mut transferred = 0;
-            // TODO: maybe only bother with background I/O for a large file (> 256KB?)
-            let result = crate::util::background_io::iter_chunks(file, &mut scratch, |chunk| {
+            let mut on_chunk_read = |chunk: &[u8]| {
                 let transfer_start = Instant::now();
                 let max_clock = Some(Hertz(info.max_transfer_speed * 1000 * 2));
                 let command = SpiCommand::new(info.transfer_word_size);
@@ -714,7 +721,26 @@ impl CoreManager {
                     ui::send(ui::Message::CoreLoadProgress(progress));
                     last_progress_update = Instant::now();
                 }
-            });
+            };
+
+            // Only do background I/O for large files.
+            let result = if file_size >= BG_IO_THRESHOLD as u64 {
+                crate::util::background_io::iter_chunks(file, &mut scratch, on_chunk_read)
+            } else {
+                let mut duration = Duration::ZERO;
+                loop {
+                    let read_start = Instant::now();
+                    let result = file.read(&mut scratch);
+                    duration += read_start.elapsed();
+
+                    match result {
+                        Ok(0) => break Ok(duration),
+                        Ok(n) => on_chunk_read(&scratch[..n]),
+                        Err(err) => break Err(err),
+                    }
+                }
+            };
+
             let read_duration = result
                 .map_err(|_| FailedLoadFile(info.label.to_string(), "I/O error".to_string()))?;
 
@@ -831,7 +857,8 @@ impl CoreManager {
                     .on_after_file_save(info.id, &mut file)
                     .map_err(|e| FailedSaveFile(info.label.to_string(), e))?;
             }
-            atomic_file::finalize(file, &tmp_path, &path).map_err(|_| {
+            // The previous save stays as `<file>.bak` when this one differs (SAVE-SEP D4).
+            atomic_file::finalize_keeping_previous(file, &tmp_path, &path).map_err(|_| {
                 FailedSaveFile(info.label.to_string(), "Replace failed".to_string())
             })?;
         }
@@ -863,7 +890,8 @@ impl CoreManager {
     /// Called when a file has been selected for the core.
     /// This could be a file or a directory.
     pub fn handle_file_selected(&mut self, path: PathBuf) {
-        if path.is_file() {
+        let is_none = path.as_os_str().is_empty();
+        if is_none || path.is_file() {
             log::info!("File selected: {}", path.display());
             let Stage::LoadSelectFile(file_index) = self.stage else {
                 panic!()
@@ -873,9 +901,14 @@ impl CoreManager {
             let settings = self.core_settings.as_mut().unwrap();
             let file_id = self.core_info.as_ref().unwrap().files[file_index].id;
             settings.file_paths.retain(|x| x.0 != file_id);
-            settings.file_paths.push((file_id, path.clone()));
 
-            self.selected_files[file_index] = Some(path);
+            if is_none {
+                self.selected_files[file_index] = None;
+            } else {
+                settings.file_paths.push((file_id, path.clone()));
+                self.selected_files[file_index] = Some(path);
+            }
+
             self.next_file_select();
         } else if path.is_dir() {
             self.send_core_file_list(&path);
@@ -959,7 +992,15 @@ impl CoreManager {
             let c2 = (f2.1.is_file(), f2.0.as_str());
             c1.cmp(&c2)
         });
-        let files = files.into_iter().map(|f| (f.0, f.1.is_dir())).collect();
+
+        // If this file is optional, make a "nope" entry.
+        let no_file = if self.core_info.as_ref().unwrap().files[file_index].optional {
+            Some((String::new(), false))
+        } else {
+            None
+        };
+        let files =
+            std::iter::chain(no_file, files.into_iter().map(|f| (f.0, f.1.is_dir()))).collect();
         Ok(files)
     }
 

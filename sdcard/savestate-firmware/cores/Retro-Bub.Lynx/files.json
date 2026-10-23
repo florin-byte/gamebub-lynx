@@ -26,10 +26,10 @@
 			"id": 2,
 			"label": "State",
 			"optional": true,
-			"read_only": true,
 			"on_demand": true,
 			"address": "0x30200000",
-			"max_size": "0x10400"
+			"max_size": "0x10400",
+			"read_only": true
 		}
 	]
 }

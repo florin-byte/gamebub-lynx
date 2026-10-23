@@ -3,6 +3,7 @@ package gba
 import chisel3._
 import chisel3.util._
 import lib.log.Logger
+import chisel3.{BitsIntf => ack}
 
 class Interrupt extends Module {
   val io = IO(new Bundle {
@@ -29,16 +30,22 @@ class Interrupt extends Module {
   val reg410 = RegInit(0.U(32.W))
 
   val irqActive = (regRequested.asUInt & regEnabled.asUInt) =/= 0.U
-  when (io.enable) {
-    regRequested := (regRequested.asUInt | io.peripheralIrq.asUInt).asTypeOf(new Interrupt.Flags)
+  val irqAck = WireDefault(0.U((new Interrupt.Flags).getWidth.W))
 
-    when (irqActive && regCpuHalt) {
+  // 3 cycle delay on IRQ input signal, likely synchronizers
+  val irqDelay = ShiftRegister(ime(0) && irqActive, 3, io.enable)
+  val haltExitDelay = ShiftRegister(irqActive, 3, io.enable)
+
+  when (io.enable) {
+    regRequested := ((regRequested.asUInt & (~irqAck)) | io.peripheralIrq.asUInt).asTypeOf(new Interrupt.Flags)
+
+    when (haltExitDelay) {
       // Exiting HALT happens when IE & IF, regardless of IME (or CPU irq)
       regCpuHalt := false.B
       logger.info(cf"CPU resumed")
     }
   }
-  io.irq := ime(0) && irqActive
+  io.irq := irqDelay
   io.cpuHalt := regCpuHalt
 
   io.mmio <> MmioMap(
@@ -56,8 +63,7 @@ class Interrupt extends Module {
           // Write to IE
           regEnabled := MMIO.mask(regEnabled, data(15, 0), mask(1, 0))
           // Write to IF
-          val ack = MMIO.mask(0.U(16.W), data(31, 16), mask(3, 2))
-          regRequested := (regRequested.asUInt & (~ack).asUInt).asTypeOf(new Interrupt.Flags)
+          irqAck := MMIO.mask(0.U(16.W), data(31, 16), mask(3, 2))
         }
       })
     ),

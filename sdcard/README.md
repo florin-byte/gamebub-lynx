@@ -9,6 +9,6 @@ Copy one `Retro-Bub.Lynx` folder to the card's `cores/` folder and put the uncom
 files (`lynx-gamebub_rev4.bit` for rev4, `lynx-gamebub_rev2.bit` for rev2; `core.json` lists both). The Lynx boot ROM
 is required and not included: `system/lynxboot.img` (512 bytes), dumped from your own Lynx.
 
-These JSONs prepare a new unified bitstream and must ship with that matching bitstream. The new stock path
-is not hardware-tested yet. Stock save states created during a session are lost if the game does not exit
+These JSONs must ship with the matching framework-v2 unified bitstream. I tested the on-demand path on rev2
+on 23 Oct 2026. The stock path is left for other users to test; the new rev4 build is hardware-untested. Stock save states created during a session are lost if the game does not exit
 normally. Existing individual slot files are not automatically converted into the stock container.

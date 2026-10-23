@@ -277,11 +277,13 @@ impl Gba {
             is_built_in: true,
             core_dir: PathBuf::new(),
             uses_cartridge: CoreCartridgeMode::IfSelected,
+            // Requires the matching framework-v2 system_data packaged with this firmware.
+            button_remap: true,
             files: [
                 CoreFile {
                     id: FILE_CONFIG_OVERRIDE,
                     label: "Config Override".try_into().unwrap(),
-                    extensions: [".json".try_into().unwrap()].into_iter().collect(),
+                    extensions: ["json".try_into().unwrap()].into_iter().collect(),
                     filename: None,
 
                     optional: true,
@@ -303,7 +305,8 @@ impl Gba {
                     extensions: ["gba".try_into().unwrap()].into_iter().collect(),
                     filename: None,
 
-                    optional: true,
+                    // Note: actually optional, with the Run Cartridge option.
+                    optional: false,
                     read_only: true,
                     user_selected: true,
                     dependent_on_0: false,
@@ -359,14 +362,6 @@ impl Gba {
             .collect(),
             settings: [
                 CoreSetting {
-                    id: SETTING_RESET,
-                    label: "Reset Core".into(),
-                    address: 0x0000_2000,
-                    mask: 0,
-                    default: 0,
-                    inner: CoreSettingType::Action { value: 1, file: None, load: false },
-                },
-                CoreSetting {
                     id: SETTING_COLOR_CORRECTIONS,
                     label: "Color Corrections".into(),
                     address: 0xFFFF_FFFF,
@@ -391,6 +386,14 @@ impl Gba {
                     mask: 0,
                     default: 1,
                     inner: CoreSettingType::Checkbox { value: 1 },
+                },
+                CoreSetting {
+                    id: SETTING_RESET,
+                    label: "Reset Core".into(),
+                    address: 0x0000_2000,
+                    mask: 0,
+                    default: 0,
+                    inner: CoreSettingType::Action { value: 1, file: None, load: false },
                 },
             ]
             .into_iter()
@@ -696,6 +699,11 @@ impl CoreHandler for Gba {
                 SETTING_GAME_BOY_PLAYER,
                 kvs::keys::GBA_ENABLE_GBP.get().unwrap() as u32,
             ),
+            // Used only if the menu has the entry (CoreInfo::button_remap).
+            (
+                crate::core::SETTING_SWAP_AB,
+                fpga::button_remap_ab_value(kvs::keys::GBA_BUTTON_REMAP.get().unwrap()),
+            ),
         ]
     }
 
@@ -714,6 +722,10 @@ impl CoreHandler for Gba {
             SETTING_GAME_BOY_PLAYER => {
                 kvs::keys::GBA_ENABLE_GBP.set(&(value == 1));
                 let _ = device.fpga.write_u32(REG_GB_PLAYER, value);
+            }
+            crate::core::SETTING_SWAP_AB => {
+                // The core manager writes the register; only store the value here.
+                kvs::keys::GBA_BUTTON_REMAP.set(&fpga::button_remap_ab_enabled(value));
             }
             _ => {}
         }

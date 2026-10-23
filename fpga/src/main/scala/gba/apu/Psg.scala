@@ -36,7 +36,7 @@ class Psg extends Module {
   val regLengthEnable = RegInit(VecInit.fill(4)(false.B))
   val channelTrigger = WireDefault(VecInit.fill(4)(false.B))
   val channelEnabled = RegInit(VecInit.fill(4)(false.B))
-  io.channelEnabled := channelTrigger.asUInt
+  io.channelEnabled := channelEnabled.asUInt
 
   // Frame sequencer
   val frameCounter = RegInit(0.U(15.W))
@@ -56,6 +56,8 @@ class Psg extends Module {
   channel1.io.lengthConfig.lengthLoad := false.B
   channel1.io.lengthConfig.enabled := regLengthEnable(0)
   channel1.io.volumeConfig := regChannel1VolumeConfig
+  channel1.io.volumeWrite := false.B
+  channel1.io.volumeWriteData := DontCare
   channel1.io.wavelength := DontCare
   channel1.io.wavelengthLoad := 0.U
   channel1.io.duty := regChannel1Duty
@@ -70,6 +72,8 @@ class Psg extends Module {
   channel2.io.lengthConfig.lengthLoad := false.B
   channel2.io.lengthConfig.enabled := regLengthEnable(1)
   channel2.io.volumeConfig := regChannel2VolumeConfig
+  channel2.io.volumeWrite := false.B
+  channel2.io.volumeWriteData := DontCare
   channel2.io.wavelength := regChannel2Wavelength
   channel2.io.duty := regChannel2Duty
 
@@ -102,6 +106,8 @@ class Psg extends Module {
   channel4.io.lengthConfig.lengthLoad := false.B
   channel4.io.lengthConfig.enabled := regLengthEnable(3)
   channel4.io.volumeConfig := regChannel4VolumeConfig
+  channel4.io.volumeWrite := false.B
+  channel4.io.volumeWriteData := DontCare
   channel4.io.lfsrConfig := regChannel4LfsrConfig
 
   // Shared channel stuff
@@ -130,6 +136,8 @@ class Psg extends Module {
           }
           when (mask(3)) {
             regChannel1VolumeConfig := data(31, 24).asTypeOf(regChannel1VolumeConfig)
+            channel1.io.volumeWrite := true.B
+            channel1.io.volumeWriteData := data(31, 24)
           }
         }
       })
@@ -160,6 +168,8 @@ class Psg extends Module {
           }
           when (mask(1)) {
             regChannel2VolumeConfig := data(15, 8).asTypeOf(regChannel2VolumeConfig)
+            channel2.io.volumeWrite := true.B
+            channel2.io.volumeWriteData := data(15, 8)
           }
         }
       })
@@ -236,6 +246,8 @@ class Psg extends Module {
           }
           when (mask(1)) {
             regChannel4VolumeConfig := data(15, 8).asTypeOf(regChannel4VolumeConfig)
+            channel4.io.volumeWrite := true.B
+            channel4.io.volumeWriteData := data(15, 8)
           }
         }
       })
@@ -276,9 +288,16 @@ class Psg extends Module {
   )
 
   // Mixing
-  val dacOutput = VecInit((0 to 3).map(i =>
-    Mux(channelEnabled(i), 0xF.S(5.W) - (channels(i).out << 1).asSInt, 0.S)
-  ))
+
+  // Convert 4-bit unsigned raw channel output to 5-bit signed
+  val dacOutput = VecInit(Seq.tabulate(4)(i => {
+    Mux(
+      channelEnabled(i) && channels(i).dacEnabled,
+      (channels(i).out << 1).zext - channels(i).maxOut.zext,
+      0.S,
+    )
+  }))
+
   val mixerLeft = VecInit((0 to 3).map(i => Mux(io.panning.left(i), dacOutput(i), 0.S))).reduceTree(_ +& _)
   val mixerRight = VecInit((0 to 3).map(i => Mux(io.panning.right(i), dacOutput(i), 0.S))).reduceTree(_ +& _)
   io.outputLeft := mixerLeft * (io.volume.volumeLeft +& 1.U).zext
