@@ -18,7 +18,7 @@ I tested games, picture/audio, Swap A/B with setting persistence, and on-demand 
 23 Oct, including loading the saved slot after exiting and reopening the game.
 The new rev4 build meets timing, but has not been tested on a rev4 console yet. Older rev4 releases were
 tested by other users. Stock save states are ready for other users to test; I have not tested that path
-on stock firmware. These packages are prepared locally and are not published yet.
+on stock firmware. Use the archive for your board and copy the JSON files together with the bitstream.
 
 For rev4 I had to fix the LCD scaler. On rev4 the picture is centered on column 372 of the 800 wide panel, not on
 400 (`displayOffsetX = -28` in Eli's code), and the scaler was making the Lynx picture 752 wide, so it started off
