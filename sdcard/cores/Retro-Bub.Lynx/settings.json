@@ -84,6 +84,45 @@
 			"default": "0x0"
 		},
 		{
+			"id": 7,
+			"label": "State Slot",
+			"address": "0x18",
+			"type": "list",
+			"items": [
+				{
+					"label": "Slot 1",
+					"value": "0x0"
+				},
+				{
+					"label": "Slot 2",
+					"value": "0x1"
+				},
+				{
+					"label": "Slot 3",
+					"value": "0x2"
+				},
+				{
+					"label": "Slot 4",
+					"value": "0x3"
+				}
+			],
+			"default": "0x0"
+		},
+		{
+			"id": 8,
+			"label": "Save State",
+			"address": "0x14",
+			"type": "action",
+			"value": "0x1"
+		},
+		{
+			"id": 9,
+			"label": "Load State",
+			"address": "0x14",
+			"type": "action",
+			"value": "0x2"
+		},
+		{
 			"id": 15,
 			"label": "Reset",
 			"address": "0x2000",

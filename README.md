@@ -39,19 +39,21 @@ If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdA
 
 ## Save states
 
-The save states are in the bitstream (the MiSTer save state engine), but they need fw changes as well, to move the
-state between the core and the SD card while the game runs. Eli's firmware does not have that, so on the stock
-firmware there are no save states.
+This branch prepares the JSON files for a new unified bitstream. That bitstream is not released yet and its
+RTL has not been ported into this public repo yet. Use a released archive until the matching bitstream is
+available. I have not tested the new stock save-state path on hardware yet.
 
-- Stock firmware: use `sdcard/cores/Retro-Bub.Lynx`. Everything works except save states. The other folder now
-  works with it too, without the error at exit: State Slot, Save State and Load State are in the menu but do nothing
-  there. I didn't test that on the stock firmware yet, I read it from Eli's code. I tested the same change on rev2
-  with my firmware, on the Game Gear core.
-- My firmware (`firmware/handheld/`): use `sdcard/savestate-firmware/cores/Retro-Bub.Lynx`. Then you have State
-  Slot, Save State and Load State (`.ss0` to `.ss3` next to the rom). I tested it on rev2. For rev4 it compiles
-  (`cargo check --features rev4`) but nobody ran it on a rev4 yet. The part that matters is
-  `firmware/handheld/src/core/on_demand.rs`, plus the `on_demand`, `file` and `file_slots` keys in `core/info.rs`
-  and `core/settings.rs`. Build it like the stock one (ESP-IDF 5.4.3, `cargo build --release --features rev4`).
+- Stock firmware (1.1.0-beta3): use `sdcard/cores/Retro-Bub.Lynx` with the matching new bitstream. State Slot, Save State
+  and Load State use four slots in `<rom>.lnxstate` (512 KiB), loaded when the game starts and written when you
+  exit the game normally. **States saved during the session are lost if you power off or the game crashes
+  before a normal exit.** An empty slot is refused without restoring it.
+- My firmware with on-demand files: use `sdcard/savestate-firmware/cores/Retro-Bub.Lynx`. States are still
+  written immediately and atomically to `<rom>.ss0` through `.ss3`. The payload format of these individual
+  files is unchanged. The new stock container and the individual files are separate; there is no automatic
+  conversion between them.
+
+Both folders use the same new bitstream. The `.sav` battery-save configuration is unchanged. The notes below
+explain the existing on-demand method; earlier hardware results apply to that method, not the new stock path.
 
 ## How the save states work in my firmware
 
