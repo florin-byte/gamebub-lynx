@@ -29,7 +29,9 @@ object HandheldLynx {
 
   /** Register 0x0000, written by the core settings (settings.json). */
   class Config extends Bundle {
-    val reserved = UInt(24.W)
+    val reserved = UInt(23.W)
+    /** Bit 8: CPU/GPU turbo (LynxTop turbo, MiSTer "CPU GPU Turbo") */
+    val turbo = Bool()
     /** Bit 7: sync the Lynx to the 60 Hz scan-out (it waits after each frame) */
     val sync = Bool()
     /** Bits 6-5: fast-forward speed (LynxTop speedselect: 0 = 400 %, 1 = 133 %, 2 = 160 %, 3 = 200 %) */
@@ -561,6 +563,7 @@ class LynxCore extends Module {
   lynx.io.pause_in := !running
   lynx.io.fastforward := fastForward
   lynx.io.speedselect := configReg.speed
+  lynx.io.turbo := configReg.turbo
   lynx.io.romsize := regRomSize
   lynx.io.romwrite_data := replayData
   lynx.io.romwrite_addr := replayAddress

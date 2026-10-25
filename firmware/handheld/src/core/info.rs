@@ -54,6 +54,13 @@ pub struct CoreCheats {
 pub enum CheatFormat {
     /// NES: Game Genie (6 / 8 letters), raw `AAAA:VV` and `AAAA?CC:VV`.
     Nes,
+    /// Master System / Game Gear: Game Genie (`XXX-YYY`, `XXX-YYY-ZZZ`), Pro Action Replay (`00AA-AAVV`) and
+    /// raw `AAAA:VV` (Genesis Plus GX's decode_cheat).
+    Sms,
+    /// A format this firmware does not know: the core loads without cheats (a core.json written for a newer
+    /// firmware must not make the core disappear from the list).
+    #[serde(other)]
+    Unknown,
 }
 
 fn default_max_codes() -> u32 {

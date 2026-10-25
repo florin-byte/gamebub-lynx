@@ -6,7 +6,7 @@
 --     savestate_number); this wrap converts/ties them so the SystemVerilog
 --     wrapper (lynx_handheld_core.sv) sees only std_logic types.
 --  2. Tie off everything Game Bub does not use: savestates/rewind, cheats,
---     ComLynx serial, fast-forward/turbo, FPS overlay. Vivado strips the
+--     ComLynx serial, FPS overlay (fast-forward and turbo are exposed). Vivado strips the
 --     dead logic.
 
 library IEEE;
@@ -50,6 +50,8 @@ entity lynxTopWrap is
       -- (00=400%, 01=133%, 10=160%, 11=200%)
       fastforward    : in  std_logic;
       speedselect    : in  std_logic_vector(1 downto 0);
+      -- CPU/GPU turbo (MiSTer "CPU GPU Turbo")
+      turbo          : in  std_logic;
 
       -- savestates (v2): trigger/status + 64-bit external memory bus
       -- (slot base = Softmap_SaveState_ADDR generic on LynxTop; slv slot
@@ -122,9 +124,9 @@ begin
       audio_l               => audio_l,
       audio_r               => audio_r,
 
-      -- settings (v2: fast-forward exposed; turbo/overlay stay off)
+      -- settings (v2: fast-forward exposed; v3: turbo exposed; overlay stays off)
       fastforward           => fastforward,
-      turbo                 => '0',
+      turbo                 => turbo,
       speedselect           => speedselect,
       fpsoverlay_on         => '0',
 

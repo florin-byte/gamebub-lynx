@@ -281,6 +281,8 @@ fn split_codes(code: &str) -> impl Iterator<Item = &str> {
 fn decode(format: CheatFormat, part: &str) -> Option<Code> {
     match format {
         CheatFormat::Nes => decode_nes(part),
+        CheatFormat::Sms => decode_sms(part),
+        CheatFormat::Unknown => None,
     }
 }
 
@@ -313,6 +315,38 @@ fn decode_nes(part: &str) -> Option<Code> {
     }
     let compare = (n[5] & 8) | (n[6] & 7) | (n[6] & 8) << 4 | (n[7] & 7) << 4;
     Some(Code { address, value: value | (n[7] & 8), compare: Some(compare) })
+}
+
+/// A Master System / Game Gear code, as Genesis Plus GX's decode_cheat (libretro/libretro.c) reads them:
+/// - Game Genie `DDA-AAA` or `DDA-AAA-RXR`: data `DD`; address from the next three digits, with the inverted last
+///   digit as its top nibble; the optional reference value from the first and third digits of the last group,
+///   rotated right by 2 and XORed with 0xBA;
+/// - Pro Action Replay `00AA-AAVV`: address `AAAA`, value `VV`;
+/// - raw `AAAA:VV`.
+fn decode_sms(part: &str) -> Option<Code> {
+    let b = part.as_bytes();
+    let digit = |i: usize| (*b.get(i)? as char).to_digit(16);
+    if (b.len() == 7 || b.len() == 11) && b[3] == b'-' {
+        let value = digit(0)? << 4 | digit(1)?;
+        let address = digit(2)? << 8 | digit(4)? << 4 | digit(5)? | (digit(6)? ^ 0xF) << 12;
+        if b.len() == 7 {
+            return Some(Code { address, value, compare: None });
+        }
+        if b[7] != b'-' {
+            return None;
+        }
+        let r = digit(8)? << 4 | digit(10)?;
+        let compare = ((r >> 2) | (r & 3) << 6) ^ 0xBA;
+        return Some(Code { address, value, compare: Some(compare) });
+    }
+    if b.len() == 9 && b[4] == b'-' {
+        let address = digit(2)? << 12 | digit(3)? << 8 | digit(5)? << 4 | digit(6)?;
+        return Some(Code { address, value: digit(7)? << 4 | digit(8)?, compare: None });
+    }
+    if b.len() == 7 && b[4] == b':' {
+        return Some(Code { address: hex(&part[..4])?, value: hex(&part[5..])?, compare: None });
+    }
+    None
 }
 
 /// The menu entries: cheats that change exactly the same set of addresses form one list (in the order of their
@@ -390,5 +424,22 @@ mod tests {
         // nesdev's example.
         let c = decode_nes("GOSSIP").unwrap();
         assert_eq!((c.address, c.value, c.compare), (0xD1DD, 0x14, None));
+    }
+
+    #[test]
+    fn sms_codes() {
+        // Game Genie: data 0x18; address F, B, 1 and the inverted D (0x2) as the top nibble.
+        let c = decode_sms("18F-B1D").unwrap();
+        assert_eq!((c.address, c.value, c.compare), (0x2FB1, 0x18, None));
+        // With a reference value: 0x6A rotated right by 2 (0x9A), XOR 0xBA.
+        let c = decode_sms("18F-B1D-6EA").unwrap();
+        assert_eq!((c.address, c.value, c.compare), (0x2FB1, 0x18, Some(0x20)));
+        // Pro Action Replay.
+        let c = decode_sms("00D2-AC10").unwrap();
+        assert_eq!((c.address, c.value, c.compare), (0xD2AC, 0x10, None));
+        // Raw.
+        let c = decode_sms("C000:05").unwrap();
+        assert_eq!((c.address, c.value, c.compare), (0xC000, 0x05, None));
+        assert!(decode_sms("00C4-22XX").is_none());
     }
 }
