@@ -27,7 +27,7 @@ If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdA
 
 ## Install
 
-1. Copy `sdcard/cores/Retro-Bub.Lynx` to the `cores/` folder on your SD card and put the bitstream next to the
+1. Copy the files in `metadata/` to a `cores/Retro-Bub.Lynx/` folder on your SD card and put the bitstream next to the
    json files (`lynx-gamebub_rev4.bit` for rev4, `lynx-gamebub_rev2.bit` for rev2).
 2. You need your own Lynx boot rom: `system/lynxboot.img`, 512 bytes. It is not here and it will not be, it is
    Atari's code, so dump it from your own Lynx. Without it the core will not start.
@@ -50,7 +50,7 @@ The unified RTL and both sets of JSON files are in this branch. Use the matching
 bitstreams do not support the new register map or the stock container. I tested the on-demand path on rev2.
 The stock firmware path is not hardware-tested by me and is left for other users to test.
 
-- Stock firmware (1.1.0-beta3): use `sdcard/cores/Retro-Bub.Lynx` with the matching new bitstream. State Slot, Save State
+- Stock firmware (1.1.0-beta3): use `metadata/` with the matching new bitstream. State Slot, Save State
   and Load State use four slots in `<rom>.lnxstate` (512 KiB), loaded when the game starts and written when you
   exit the game normally. **States saved during the session are lost if you power off or the game crashes
   before a normal exit.** An empty slot is refused without restoring it.
