@@ -479,6 +479,8 @@ class LynxCore extends Module {
   val stateLoad = WireDefault(false.B)
   // Rise of busy: within 50 ms of the request; the whole operation: 1 s.
   val busyRiseTimeout = (clockSystemHz / 20).U
+  /** Engine idle time required before a request (rewind captures may be starting): 1024 clocks, 16 us. */
+  val EngineQuietClocks = 1024
   val operationTimeout = clockSystemHz.U
 
   def finishState(ok: Bool): Unit = {
@@ -502,7 +504,17 @@ class LynxCore extends Module {
   }
   switch (regStateOp) {
     is (StateOp.idle) {
-      when (regStateSaveRequest || regStateLoadRequest) {
+      // Rewind uses the same save-state engine (captures every 156 ms) and is held off while a request is
+      // pending (rewind_on below), so the engine must have been idle for a while before the request: otherwise a
+      // capture's busy would be taken for this operation's, which would be reported done before it ran.
+      when ((regStateSaveRequest || regStateLoadRequest) && ssBusy) {
+        regStateTimer := 0.U
+      } .elsewhen (regStateSaveRequest || regStateLoadRequest) {
+        regStateTimer := regStateTimer + 1.U
+      } .otherwise {
+        regStateTimer := 0.U
+      }
+      when ((regStateSaveRequest || regStateLoadRequest) && !ssBusy && regStateTimer >= EngineQuietClocks.U) {
         regStateIsLoad := regStateLoadRequest
         regStateSaveRequest := false.B
         regStateLoadRequest := false.B
@@ -567,7 +579,10 @@ class LynxCore extends Module {
   lynx.io.fastforward := fastForward
   lynx.io.speedselect := configReg.speed
   lynx.io.turbo := configReg.turbo
-  lynx.io.rewind_on := configReg.rewind
+  // Off while a save or load state is pending or running (see StateOp.idle); a state change also starts a new
+  // rewind history, as the old one belongs to the game before the load.
+  lynx.io.rewind_on := configReg.rewind && !(regStateSaveRequest || regStateLoadRequest) &&
+    regStateOp === StateOp.idle
   lynx.io.rewind_active := configReg.rewind && buttons.l
   lynx.io.romsize := regRomSize
   lynx.io.romwrite_data := replayData
