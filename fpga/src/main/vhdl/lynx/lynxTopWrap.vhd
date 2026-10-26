@@ -5,8 +5,8 @@
 --     ports (UG901). LynxTop has two integer ports (pixel_out_addr,
 --     savestate_number); this wrap converts/ties them so the SystemVerilog
 --     wrapper (lynx_handheld_core.sv) sees only std_logic types.
---  2. Tie off everything Game Bub does not use: savestates/rewind, cheats,
---     ComLynx serial, FPS overlay (fast-forward and turbo are exposed). Vivado strips the
+--  2. Tie off everything Game Bub does not use: cheats, ComLynx serial,
+--     FPS overlay (save states, rewind, fast-forward and turbo are exposed). Vivado strips the
 --     dead logic.
 
 library IEEE;
@@ -52,6 +52,9 @@ entity lynxTopWrap is
       speedselect    : in  std_logic_vector(1 downto 0);
       -- CPU/GPU turbo (MiSTer "CPU GPU Turbo")
       turbo          : in  std_logic;
+      -- rewind (MiSTer "Rewind Capture" + the held Rewind button)
+      rewind_on      : in  std_logic;
+      rewind_active  : in  std_logic;
 
       -- savestates (v2): trigger/status + 64-bit external memory bus
       -- (slot base = Softmap_SaveState_ADDR generic on LynxTop; slv slot
@@ -144,7 +147,7 @@ begin
       comm_rx               => '1',
       comm_tx               => open,
 
-      -- savestates (v2): exposed; rewind stays disabled. Header count
+      -- savestates (v2): exposed; v3: rewind exposed. Header count
       -- always increments (full 0xFF byte-enable header writes).
       increaseSSHeaderCount => '1',
       save_state            => save_state,
@@ -159,8 +162,8 @@ begin
       SAVE_out_ena          => SAVE_out_ena,
       SAVE_out_be           => SAVE_out_be,
       SAVE_out_done         => SAVE_out_done,
-      rewind_on             => '0',
-      rewind_active         => '0',
+      rewind_on             => rewind_on,
+      rewind_active         => rewind_active,
 
       -- cheats: disabled
       cheat_clear           => '0',

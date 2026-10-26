@@ -811,7 +811,9 @@ begin
    (
       -- Game Bub port note (v2): from the entity generic (was 58720256).
       Softmap_SaveState_ADDR   => Softmap_SaveState_ADDR,
-      Softmap_Rewind_ADDR      => 33554432
+      -- Game Bub port note: SDRAM byte 0x0040_0000 (unit: 32-bit words); 33554432 is past the 32 MiB SDRAM
+      -- and would wrap onto the cartridge at 0.
+      Softmap_Rewind_ADDR      => 1048576
    )
    port map
    (

@@ -38,7 +38,8 @@ end entity;
 architecture arch of statemanager is
 
    constant SAVESTATESIZE : integer := 16#8000#; -- 32768 Dwords = 128kbyte
-   constant REWIND_COUNT  : integer := 256;
+   -- Game Bub port note: 128 states (16 MiB of SDRAM) instead of 256 (32 MiB, the whole SDRAM).
+   constant REWIND_COUNT  : integer := 128;
    constant TIME_CAPTURE  : integer := 10000000; -- 320 ms;
    constant TIME_REWIND   : integer :=  5000000; -- 160 ms;
    --constant TIME_CAPTURE  : integer :=   250000; -- sim

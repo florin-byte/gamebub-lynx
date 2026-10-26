@@ -29,7 +29,10 @@ object HandheldLynx {
 
   /** Register 0x0000, written by the core settings (settings.json). */
   class Config extends Bundle {
-    val reserved = UInt(23.W)
+    val reserved = UInt(22.W)
+    /** Bit 9: rewind (LynxTop rewind_on: a state captured every 10 M clocks, 156 ms, 128 states, about 20 s at
+     *  SDRAM byte 0x0040_0000; rewinds while L is held, and L is then no longer Option 1) */
+    val rewind = Bool()
     /** Bit 8: CPU/GPU turbo (LynxTop turbo, MiSTer "CPU GPU Turbo") */
     val turbo = Bool()
     /** Bit 7: sync the Lynx to the 60 Hz scan-out (it waits after each frame) */
@@ -564,6 +567,8 @@ class LynxCore extends Module {
   lynx.io.fastforward := fastForward
   lynx.io.speedselect := configReg.speed
   lynx.io.turbo := configReg.turbo
+  lynx.io.rewind_on := configReg.rewind
+  lynx.io.rewind_active := configReg.rewind && buttons.l
   lynx.io.romsize := regRomSize
   lynx.io.romwrite_data := replayData
   lynx.io.romwrite_addr := replayAddress
@@ -577,7 +582,8 @@ class LynxCore extends Module {
   ssBusy := lynx.io.ss_busy
   ssStateLoaded := lynx.io.state_loaded
 
-  // Controls (the platform clears them without focus). Option 1 on L or X, Option 2 on Y, Pause on Start.
+  // Controls (the platform clears them without focus). Option 1 on X (and on L unless rewind is on), Option 2
+  // on Y, Pause on Start.
   // When the picture is rotated, the d-pad is turned with it, so that up is up on the display.
   val rotate = configReg.rotate
   val up = buttons.up
@@ -590,7 +596,7 @@ class LynxCore extends Module {
   lynx.io.JoyRight := MuxLookup(rotate, right)(Seq(LynxVideo.RotateLeft.U -> up, LynxVideo.RotateRight.U -> down))
   lynx.io.KeyA := buttons.a
   lynx.io.KeyB := buttons.b
-  lynx.io.Option1 := buttons.l || buttons.x
+  lynx.io.Option1 := buttons.x || (buttons.l && !configReg.rewind)
   lynx.io.Option2 := buttons.y
   lynx.io.KeyPause := buttons.start
 

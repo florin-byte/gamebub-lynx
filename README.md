@@ -40,6 +40,10 @@ If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdA
 - Fast Forward (R): how fast it goes while you hold R (400 %, 200 %, 160 %, 133 % or Off). No sound during it.
 - Sync to 60 Hz: the core waits for the screen after every frame, like "Sync core to 60 Hz" on MiSTer. The Lynx
   games run between about 50 and 75 Hz.
+- CPU/GPU Turbo: the Lynx CPU and graphics run on every clock while the timers and the sound keep real time, so
+  games that slow down run smoother (MiSTer's "CPU GPU Turbo"). Some games may run too fast; turn it off then.
+- Rewind (hold L): keeps the last ~20 s (a state every 156 ms, 128 states); hold L to go back. While it is on,
+  L is no longer Option 1 (X still is).
 - Swap A/B (right before Reset): swaps the handheld A and B buttons for this core. Menus stay unchanged.
   It is off by default and the core keeps its setting after exit. Docked gamepads use their separate Dock setting.
 - Reset.

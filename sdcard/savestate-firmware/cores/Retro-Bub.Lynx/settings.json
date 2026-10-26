@@ -93,6 +93,15 @@
 			"default": "0x0"
 		},
 		{
+			"id": 13,
+			"label": "Rewind (hold L)",
+			"address": "0x0",
+			"mask": "0xFFFFFDFF",
+			"type": "checkbox",
+			"value": "0x200",
+			"default": "0x0"
+		},
+		{
 			"id": 7,
 			"label": "State Slot",
 			"address": "0xFFFFFFFF",

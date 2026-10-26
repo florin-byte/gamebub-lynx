@@ -48,6 +48,8 @@ class LynxSystem extends BlackBox with HasBlackBoxPath {
     val fastforward = Input(Bool())
     val speedselect = Input(UInt(2.W))
     val turbo = Input(Bool())
+    val rewind_on = Input(Bool())
+    val rewind_active = Input(Bool())
 
     // Save states: request pulses, the slot, status, and the 64-bit memory bus (one access at a time:
     // `SAVE_out_ena` pulses with the address in 32-bit words, answered by a `SAVE_out_done` pulse).

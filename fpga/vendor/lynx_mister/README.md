@@ -27,5 +27,8 @@ console there), applied to `3708e45` (whose only differences from `aff48ebc` are
   `ss_busy` (`savestate_busy`).
 - `rtl/statemanager.vhd`: `savestate_number : in integer range 0 to 3` (was an unconstrained integer; the
   formal/actual range mismatch is rejected by strict front ends).
+- `rtl/lynxTop.vhd`: `Softmap_Rewind_ADDR` = 1048576 (SDRAM byte 0x0040_0000; upstream's 33554432 is past the
+  Game Bub's 32 MiB SDRAM and would wrap onto the cartridge at 0).
+- `rtl/statemanager.vhd`: `REWIND_COUNT` = 128 (16 MiB) instead of 256 (32 MiB, the whole SDRAM).
 - `rtl/fpsoverlay.vhd`: intermediate signals with the `overlay` entity's ranges (0..2047, 0..1023) for
   `pixel_x` / `pixel_y` (the 0..159 / 0..101 ports were passed directly).
