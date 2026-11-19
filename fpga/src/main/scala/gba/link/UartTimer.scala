@@ -2,7 +2,9 @@ package gba.link
 
 import chisel3._
 
-class UartTimer(counterWidth: Int = 17) extends Module {
+/** emulatedTime (GB-158): count only while the core advances. For two cores joined inside the
+  * FPGA on one core clock, where a bit must last the same emulated time on every console. */
+class UartTimer(counterWidth: Int = 17, emulatedTime: Boolean = false) extends Module {
   val io = IO(new Bundle {
     val enable = Input(Bool())
     val baudrate = Input(UInt(2.W))
@@ -26,10 +28,11 @@ class UartTimer(counterWidth: Int = 17) extends Module {
   val counter = RegInit(0.U(counterWidth.W))
   val increment = VecInit(counterIncrements)(io.baudrate)
   val nextCounter = counter +& increment
-  counter := nextCounter
+  val advance = if (emulatedTime) io.enable else true.B
+  when (advance) { counter := nextCounter }
 
-  val pulseMid = nextCounter(counterWidth - 1) && !counter(counterWidth - 1)
-  val pulse = nextCounter(counterWidth)
+  val pulseMid = advance && nextCounter(counterWidth - 1) && !counter(counterWidth - 1)
+  val pulse = advance && nextCounter(counterWidth)
   when (io.enable) {
     io.pulse := latchedPulse || pulse
     io.pulseMid := latchedPulseMid || pulseMid

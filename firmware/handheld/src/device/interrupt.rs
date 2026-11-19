@@ -13,12 +13,12 @@ use crate::{device::drivers::fpga, ui};
 
 use super::Device;
 
-const FLAG_MCU_IRQ: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(1) };
-const FLAG_HOME: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(2) };
-const FLAG_POWER: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(4) };
-const FLAG_VOL_UP: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(8) };
-const FLAG_VOL_DOWN: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(16) };
-const FLAG_VBUS_PGOOD: NonZeroU32 = unsafe { NonZeroU32::new_unchecked(32) };
+const FLAG_MCU_IRQ: NonZeroU32 = NonZeroU32::new(1).unwrap();
+const FLAG_HOME: NonZeroU32 = NonZeroU32::new(2).unwrap();
+const FLAG_POWER: NonZeroU32 = NonZeroU32::new(4).unwrap();
+const FLAG_VOL_UP: NonZeroU32 = NonZeroU32::new(8).unwrap();
+const FLAG_VOL_DOWN: NonZeroU32 = NonZeroU32::new(16).unwrap();
+const FLAG_VBUS_PGOOD: NonZeroU32 = NonZeroU32::new(32).unwrap();
 const FLAG_BUTTONS: u32 =
     FLAG_HOME.get() | FLAG_POWER.get() | FLAG_VOL_UP.get() | FLAG_VOL_DOWN.get();
 
@@ -50,6 +50,9 @@ impl Device<'_> {
             .name("Interrupt".to_string())
             .stack_size(4 * 1024)
             .spawn(|| {
+                // Above the UI (10), below the link task (12): FPGA IRQs (link
+                // events) are acknowledged without waiting for a UI time slice.
+                unsafe { esp_idf_svc::sys::vTaskPrioritySet(std::ptr::null_mut(), 11) };
                 let notification = Notification::new();
 
                 {
@@ -102,6 +105,9 @@ impl Device<'_> {
                 let mut prev_hdmi_detected: Option<bool> = None;
                 #[allow(unused)]
                 let mut prev_vbus_pgood: Option<bool> = None;
+                let mut last_i2c_check: i64 = 0;
+                #[allow(unused)]
+                let mut last_expander_check: i64 = 0;
 
                 loop {
                     let flags = match notification.wait(esp_idf_svc::hal::delay::BLOCK) {
@@ -109,7 +115,26 @@ impl Device<'_> {
                         _ => continue,
                     };
 
-                    let mut device = Device::get().lock().unwrap();
+                    // Acknowledge the FPGA first, with no slow I2C work under
+                    // the same guard. The radio task needs Device for SPI too.
+                    let fpga_irq = if (flags & FLAG_MCU_IRQ.get()) != 0 {
+                        let mut device = Device::lock();
+                        let pending = device.fpga.read_u32(fpga::REG_CTRL_IRQ_PENDING).unwrap();
+                        if pending != 0 {
+                            device.fpga.write_u32(fpga::REG_CTRL_IRQ_PENDING, pending).unwrap();
+                        }
+                        pending
+                    } else {
+                        0
+                    };
+                    if (fpga_irq & fpga::Irq::CoreRequest.as_flag()) != 0 {
+                        // Device is unlocked before waking the higher-priority
+                        // CWL task. Yield before reacquiring it for other work.
+                        crate::link::core_request();
+                        std::thread::yield_now();
+                    }
+
+                    let mut device = Device::lock();
 
                     if (flags & FLAG_HOME.get()) != 0 {
                         let _ = device.button_home.enable_interrupt();
@@ -130,10 +155,24 @@ impl Device<'_> {
                     }
                     let mut poll_buttons = (flags & FLAG_BUTTONS) != 0;
 
-                    // Rev 1 and 2, must read I/O expander to clear IRQ.
-                    #[cfg(feature = "has_io_expander")]
+                    // Rev 1 and 2, must read I/O expander to clear IRQ. Rev 1 also
+                    // needs it for HDMI detect. GB-116: on rev 2 the I2C read held
+                    // Device for every FPGA IRQ while the link task waited for SPI;
+                    // skip it when only the FPGA asserted the shared line (line
+                    // high after the ack), as for the fuel gauge/DAC below.
+                    #[cfg(all(feature = "has_io_expander", feature = "rev1"))]
                     #[allow(unused)]
                     let io_expander = device.io_expander.get_pins().unwrap();
+                    #[cfg(all(feature = "has_io_expander", not(feature = "rev1")))]
+                    {
+                        let now = unsafe { esp_idf_svc::sys::esp_timer_get_time() };
+                        let only_fpga = fpga_irq != 0 && !device.pin_irq.is_low()
+                            && now - last_expander_check < 250_000;
+                        if !only_fpga {
+                            last_expander_check = now;
+                            let _ = device.io_expander.get_pins();
+                        }
+                    }
 
                     // Handle dock monitoring
                     cfg_if::cfg_if! {
@@ -161,42 +200,58 @@ impl Device<'_> {
                         }
                     }
 
-                    if (flags & FLAG_MCU_IRQ.get()) != 0 {
-                        log::debug!("Interrupt: MCU_IRQ");
-
-                        // Fuel gauge IRQs.
-                        #[cfg(feature = "has_max17048")]
-                        if let Ok(fuel_irq) = device.fuel_gauge.query_alerts() {
-                            let _ = fuel_irq;
-                        }
-
-                        // DAC IRQs.
-                        if let Ok(dac_irq) = device.dac.get_interrupt_status() {
-                            if dac_irq.headset_detected {
-                                let has_headphones = device.dac.get_headphones_detected().unwrap();
-                                worker::send(worker::Message::HeadphoneState(has_headphones));
-                            }
-                        }
-
-                        // FPGA IRQs
-                        let fpga_irq = device.fpga.read_u32(fpga::REG_CTRL_IRQ_PENDING).unwrap();
-                        if fpga_irq != 0 {
-                            device
-                                .fpga
-                                .write_u32(fpga::REG_CTRL_IRQ_PENDING, fpga_irq)
-                                .unwrap();
-                            worker::send(worker::Message::FpgaIrq(fpga_irq));
-                        }
-                        if (fpga_irq & fpga::Irq::Button.as_flag()) != 0 {
-                            poll_buttons = true;
-                        }
-
-                        let _ = device.pin_irq.enable_interrupt();
+                    poll_buttons |= (fpga_irq & fpga::Irq::Button.as_flag()) != 0;
+                    let input_state = if poll_buttons {
+                        Some(device.get_input_state().unwrap())
+                    } else {
+                        None
+                    };
+                    drop(device);
+                    if let Some(input_state) = input_state {
+                        ui::send(ui::Message::InputState(input_state));
                     }
 
-                    if poll_buttons {
-                        let input_state = device.get_input_state().unwrap();
-                        ui::send(ui::Message::InputState(input_state));
+                    if (flags & FLAG_MCU_IRQ.get()) != 0 {
+                        let worker_irq = fpga_irq & !fpga::Irq::CoreRequest.as_flag();
+                        if worker_irq != 0 {
+                            worker::send(worker::Message::FpgaIrq(worker_irq));
+                        }
+                        // The I2C checks below hold Device for ~1 ms and delay the
+                        // link task on every FPGA IRQ. Skip them when the shared
+                        // line went high after the FPGA ack, i.e. no other source
+                        // asserts it. Fuel gauge alerts are level and the DAC
+                        // status (0x2C) is sticky, so a 250 ms recheck loses nothing.
+                        let now = unsafe { esp_idf_svc::sys::esp_timer_get_time() };
+                        let line_low = Device::lock().pin_irq.is_low();
+                        if fpga_irq != 0 && !line_low && now - last_i2c_check < 250_000 {
+                            let _ = Device::lock().pin_irq.enable_interrupt();
+                            continue;
+                        }
+                        last_i2c_check = now;
+                        // All shared-line sources are still serviced. Separate
+                        // guards let pending FPGA accesses run between devices.
+                        #[cfg(feature = "has_max17048")]
+                        {
+                            let mut device = Device::lock();
+                            if let Ok(fuel_irq) = device.fuel_gauge.query_alerts() {
+                                let _ = fuel_irq;
+                            }
+                        }
+                        std::thread::yield_now();
+                        let headphones = {
+                            let mut device = Device::lock();
+                            match device.dac.get_interrupt_status() {
+                                Ok(irq) if irq.headset_detected =>
+                                    Some(device.dac.get_headphones_detected().unwrap()),
+                                _ => None,
+                            }
+                        };
+                        if let Some(detected) = headphones {
+                            worker::send(worker::Message::HeadphoneState(detected));
+                        }
+                        // Keep the low-level IRQ disabled until expander, FPGA,
+                        // buttons, fuel gauge and DAC have all been serviced.
+                        let _ = Device::lock().pin_irq.enable_interrupt();
                     }
                 }
             })

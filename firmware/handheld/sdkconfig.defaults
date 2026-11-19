@@ -7,7 +7,7 @@ CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 CONFIG_ESP32S3_DATA_CACHE_32KB=y
 
 # Rust often needs a bit of an extra main task stack size compared to C (the default is 3K)
-CONFIG_ESP_MAIN_TASK_STACK_SIZE=20480
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=28672
 
 # Use this to set FreeRTOS kernel tick frequency to 1000 Hz (100 Hz by default).
 # This allows to use 1 ms granuality for thread sleeps (10 ms by default).
@@ -21,6 +21,10 @@ CONFIG_FREERTOS_HZ=1000
 CONFIG_FATFS_LFN_HEAP=y
 CONFIG_FATFS_MAX_LFN=255
 CONFIG_FATFS_API_ENCODING_UTF_8=y
+
+# Rapid random seeking in large read-only files
+CONFIG_FATFS_USE_FASTSEEK=y
+CONFIG_FATFS_FAST_SEEK_BUFFER_SIZE=64
 
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 CONFIG_FLASHMODE_QIO=y
@@ -38,3 +42,13 @@ CONFIG_TINYUSB_VENDOR_ENABLED=y
 CONFIG_TINYUSB_VENDOR_COUNT=1
 CONFIG_TINYUSB_VENDOR_RX_BUFSIZE=0
 CONFIG_TINYUSB_VENDOR_TX_BUFSIZE=0
+
+# ESP-NOW diagnostic traffic needs little throughput. IDF: ~1.6 KB per static RX buffer.
+# GB-033 limits RX buffers; GB-035 also keeps optional Wi-Fi code out of IRAM.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
+
+# Keep Wi-Fi code in flash: IRAM and DRAM share internal SRAM on ESP32-S3.
+CONFIG_ESP_WIFI_IRAM_OPT=n
+CONFIG_ESP_WIFI_RX_IRAM_OPT=n
+# Independent option; keep it off as well (the ESP32-S3 default is n).
+CONFIG_ESP_WIFI_EXTRA_IRAM_OPT=n

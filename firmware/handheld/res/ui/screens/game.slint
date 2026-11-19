@@ -5,10 +5,73 @@ import { Button } from "../components/button.slint";
 import { ButtonList } from "../components/button_list.slint";
 import { CoreSettingList } from "cores/core_settings.slint";
 import { CoreSettingType } from "cores/types.slint";
+import { CheatsPage } from "cheats.slint";
+import { OutlinedText, OutlinedFrame } from "../components/outline.slint";
+
+// The in-game menu is drawn over the game, which the FPGA darkens while the menu is open, like the
+// Cheats page: no background of its own, fixed light text and grey lines (not the theme colors,
+// whose dark text would not read over the darkened game).
+global OverlayColors {
+    out property <color> text: white;
+    out property <color> text-dim: #d8d8d8;
+}
+
+component SidebarMenu inherits VerticalLayout {
+    callback on-selected(item: int);
+
+    in property <[string]> items;
+    in-out property <int> focused-item: 0;
+
+    padding: 4px;
+    spacing: 2px;
+    forward-focus: i-focus-scope;
+
+    i-focus-scope := FocusScope {
+        key-pressed(event) => {
+            if (event.repeat) {
+                reject
+            } else if (event.text == "a") {
+                on-selected(focused-item);
+                accept
+            } else if (event.text == Key.UpArrow) {
+                focused-item = max(0, focused-item - 1);
+                accept
+            } else if (event.text == Key.DownArrow) {
+                focused-item = min(items.length - 1, focused-item + 1);
+                accept
+            } else {
+                reject
+            }
+        }
+    }
+
+    for item[index] in items: Rectangle {
+        min-width: i-text.preferred-width + 8px;
+        height: i-text.preferred-height + 4px;
+
+        if focused-item == index: OutlinedFrame {
+            line-color: OverlayColors.text;
+        }
+
+        i-text := OutlinedText {
+            text: item;
+            x: 4px;
+            y: (parent.height - self.height) / 2;
+            width: self.preferred-width;
+            height: self.preferred-height;
+            text-color: focused-item == index ? OverlayColors.text : OverlayColors.text-dim;
+        }
+    }
+}
+
 
 export component GameScreen inherits ScreenBase {
     private property <bool> menu-open: false;
     private property <bool> settings-open: false;
+    private property <bool> cheats-open: false;
+    private property <bool> partners-open: false;
+    /// The Cheats page closes on the press of B: the release that follows must not close the menu.
+    private property <bool> cheats-closed-by-b: false;
     forward-focus: i-focus-scope;
 
     // /** todo: dev remove */
@@ -24,68 +87,205 @@ export component GameScreen inherits ScreenBase {
         Backend.game-set-focused(!open);
         self.menu-open = open;
         if (menu-open) {
+            i-list.focused-item = 0;
             i-list.focus();
         } else {
             settings-open = false;
+            root.set-cheats-open(false);
+            Backend.link-page-open = false;
+            partners-open = false;
             i-focus-scope.focus();
+        }
+    }
+
+    /// The Cheats page covers the screen (no status bar) over the darkened game.
+    protected function set-cheats-open(open: bool) {
+        if (open == root.cheats-open) {
+            return;
+        }
+        root.cheats-open = open;
+        Backend.cheats-page-open(open);
+        Global.ui-status-bar = !open && root.menu-open;
+        if (open) {
+            Backend.cheats-load();
+        } else if (root.menu-open) {
+            i-list.focus();
         }
     }
 
     i-focus-scope := FocusScope {
         key-released(event) => {
-            if (event.text == "Home" || event.text == "h") && !Global.home-consumed {
+            if (event.text == "Home" || event.text == "h") && !Global.home-consumed && !Backend.core-is-loading {
                 set-menu-open(!root.menu-open);
             }
-            if (event.text == "Power") {
+            if event.text == "Power" && !root.menu-open {
                 set-menu-open(true);
             }
-            if event.text == "b" && settings-open {
-                settings-open = false;
-                i-list.focus();
+            if event.text == "b" && !root.menu-open && Backend.link-room-open && Backend.link-room-can-exit {
+                Backend.game-exit();
+            }
+            if event.text == "a" && !root.menu-open && Backend.link-room-open && Backend.link-room-can-accept {
+                Backend.link-room-accept();
+            }
+            if event.text == "b" && root.menu-open && !cheats-open {
+                if cheats-closed-by-b {
+                    cheats-closed-by-b = false;
+                } else if Backend.link-page-open {
+                    if partners-open {
+                        partners-open = false;
+                        i-link-list.focus();
+                    } else {
+                        Backend.link-page-open = false;
+                        i-list.focus();
+                    }
+                } else if settings-open {
+                    settings-open = false;
+                    i-list.focus();
+                } else {
+                    set-menu-open(false);
+                }
             }
             reject
         }
 
-        menu := Rectangle {
-            visible: menu-open;
-            background: Theme.surface;
-            border-color: Theme.border;
-            border-width: 1px;
-            width: i-list.min-width + 20px;
-            height: i-list.min-height;
+        i-menu := Rectangle {
+            visible: menu-open && !cheats-open && !Global.power-menu-open;
+            x: 0;
+            width: i-list.min-width;
+            height: 100%;
 
-            i-list := ButtonList {
-                items: ["Return", "Settings", "Exit Core"];
+            i-list := SidebarMenu {
+                alignment: start;
+                // Return, Settings, [Cheats], [Wireless link], Reset, Exit Core
+                items: Backend.cheats-available
+                    ? (Backend.game-wireless-link ? ["Return", "Settings >", "Cheats", "Wireless link", "Reset", "Exit Core"] : ["Return", "Settings >", "Cheats", "Reset", "Exit Core"])
+                    : (Backend.game-wireless-link ? ["Return", "Settings >", "Wireless link", "Reset", "Exit Core"] : ["Return", "Settings >", "Reset", "Exit Core"]);
                 on-selected(item) => {
                     if (item == 0) {
                         root.set-menu-open(false);
                     } else if (item == 1) {
                         Backend.game-settings-load();
                         root.settings-open = true;
-                    } else if (item == 2) {
+                    } else if (item == 2 && Backend.cheats-available) {
+                        root.set-cheats-open(true);
+                    } else if (Backend.game-wireless-link && item == (Backend.cheats-available ? 3 : 2)) {
+                        Backend.link-page-open = true;
+                        i-link-list.focus();
+                    } else if (item == self.items.length - 2) {
+                        Backend.game-reset();
+                        set-menu-open(false);
+                    } else {
                         Backend.game-exit();
                     }
                 }
             }
         }
 
-        settings := Rectangle {
-            visible: settings-open;
-            background: Theme.surface;
-            border-color: Theme.border;
-            border-width: 1px;
-            x: 32px;
+        if settings-open: Rectangle {
+            visible: !Global.power-menu-open;
+
+            OutlinedFrame {
+                line-color: OverlayColors.text;
+            }
+            x: i-menu.width + 8px;
             y: 32px;
-            width: root.width - 64px;
+            width: root.width - self.x - 8px;
             height: root.height - 64px;
 
-            if settings-open: CoreSettingList {
+            CoreSettingList {
                 x: 2px;
                 y: 2px;
                 width: parent.width - 4px;
                 height: parent.height - 4px;
                 init => {
                     self.focus();
+                }
+            }
+        }
+
+        if cheats-open: CheatsPage {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            init => {
+                self.focus();
+            }
+            close => {
+                root.cheats-closed-by-b = true;
+                root.set-cheats-open(false);
+            }
+        }
+
+        Rectangle {
+            visible: Backend.link-page-open;
+            background: Theme.surface;
+            border-color: Theme.border;
+            border-width: 1px;
+            width: root.width;
+            height: root.height;
+            VerticalLayout {
+                padding: 4px;
+                spacing: 2px;
+                // Four entries must fit 160 px (rev2): no title line, a tighter list.
+                Text { text: Backend.link-status; color: Theme.text; horizontal-alignment: center; }
+                Text { text: Backend.link-detail; color: Theme.text-dim; horizontal-alignment: center; }
+                i-link-list := ButtonList {
+                    padding: 2px;
+                    // The radio rate of the classic GB/GBC link, switched by hand (GB-162 D2; default 1 Mbps).
+                    items: [Backend.link-active ? "Turn off" : "Start searching", "Choose partner",
+                        Backend.link-fast-gb ? "GB/GBC radio: 12 Mbps" : "GB/GBC radio: 1 Mbps", "Back"];
+                    on-selected(item) => {
+                        if item == 0 { Backend.link-toggle(); }
+                        else if item == 1 { Backend.link-partners-load(); partners-open = true; }
+                        else if item == 2 { Backend.link-fast-gb-toggle(); }
+                        else { Backend.link-page-open = false; i-list.focus(); }
+                    }
+                }
+            }
+        }
+
+        if partners-open: Rectangle {
+            background: Theme.surface;
+            width: root.width;
+            height: root.height;
+            VerticalLayout {
+                padding: 4px;
+                Text { text: "Choose partner · B: Back"; color: Theme.text; horizontal-alignment: center; }
+                ButtonList {
+                    init => { self.focus(); }
+                    items: Backend.link-partners;
+                    on-selected(item) => {
+                        Backend.link-partner-choose(item);
+                        partners-open = false;
+                        i-link-list.focus();
+                    }
+                }
+            }
+        }
+
+        // GB-162: waiting room. Plain lines from the session state, so more players or more
+        // steps only change the text.
+        if Backend.link-room-open && !menu-open && !Backend.core-is-loading: Rectangle {
+            background: Theme.surface;
+            border-color: Theme.border;
+            border-width: 1px;
+            width: i-room-layout.min-width;
+            height: i-room-layout.min-height;
+
+            i-room-layout := VerticalLayout {
+                padding: 6px;
+                spacing: 2px;
+                Text { text: Backend.link-room-status; color: Theme.text; horizontal-alignment: center; }
+                for line in Backend.link-room-lines: Text {
+                    text: line;
+                    color: Theme.text-dim;
+                    horizontal-alignment: center;
+                }
+                if Backend.link-room-hint != "": Text {
+                    text: Backend.link-room-hint;
+                    color: Theme.text;
+                    horizontal-alignment: center;
                 }
             }
         }

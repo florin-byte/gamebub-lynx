@@ -53,7 +53,9 @@ const STATE_BYTES: u32 = 49_724;
 const STATE_ADDRESS: u32 = 0x3000_0000 + 0x0080_0000;
 const STATE_SLOTS: u32 = 4;
 
-const SETTING_RESET: u16 = 0;
+/// GB-145: cartridge RAM of the hidden core, after the largest save (128 KiB) in the SRAM.
+const SYNC_RAM_BASE: u32 = 0x2_0000;
+
 const SETTING_GB_MODE: u16 = 1;
 const SETTING_GBC_COLOR_CORRECTIONS: u16 = 2;
 const SETTING_GB_COLOR_PALETTE: u16 = 3;
@@ -83,6 +85,11 @@ pub struct Gameboy {
     /// RTC state loaded from the RAM file
     rtc_state: Option<(rtc::RtcState, rtc::RtcState)>,
 
+    /// CRC of the ROM header and the ROM size: what both consoles must share for GB-145.
+    rom_id: u32,
+    /// This game runs as two cores with frame-locked buttons (GB-145).
+    sync: bool,
+
     /// Selected save-state slot (0-based)
     state_slot: u32,
     /// Save-state transfer requested from the in-game menu
@@ -96,9 +103,87 @@ impl Gameboy {
             rom_file_size: 0,
             ram_path: None,
             rtc_state: None,
+            rom_id: 0,
+            sync: false,
             state_slot: 0,
             file_request: None,
         }
+    }
+
+    fn crc32(mut crc: u32, data: &[u8]) -> u32 {
+        for &byte in data {
+            crc ^= byte as u32;
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xEDB8_8320 & (crc & 1).wrapping_neg());
+            }
+        }
+        crc
+    }
+
+    /// GB-145: give the hidden core the same cartridge RAM as the visible one (the save
+    /// just loaded at the start of the SRAM) and return its CRC for the partner check.
+    fn sync_copy_save(device: &mut Device, ram_size: u32) -> Result<u32, String> {
+        const SRAM: u32 = 0x4000_0000;
+        let clock = Some(Hertz(5_000 * 1000 * 2).min(fpga::MAX_SPI_READ_CLOCK));
+        let command = || fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits16);
+        let mut buf = vec![0u8; 2048];
+        let mut crcs = [0xFFFF_FFFFu32; 2];
+        // Pass 0 copies and sums the visible RAM; pass 1 sums the copy read back.
+        for pass in 0..2u32 {
+            let mut pos = 0u32;
+            while pos < ram_size {
+                let n = ((ram_size - pos) as usize).min(buf.len());
+                device.fpga.spi_read(clock, command(), SRAM + pass * SYNC_RAM_BASE + pos, &mut buf[..n])
+                    .map_err(|_| "sync: SRAM read failed")?;
+                crcs[pass as usize] = Self::crc32(crcs[pass as usize], &buf[..n]);
+                if pass == 0 {
+                    device.fpga.spi_write(clock, command(), SRAM + SYNC_RAM_BASE + pos, &buf[..n])
+                        .map_err(|_| "sync: SRAM write failed")?;
+                }
+                pos += n as u32;
+            }
+        }
+        if crcs[0] != crcs[1] {
+            log::error!("sync: save copy differs, {:08x} / {:08x}", crcs[0], crcs[1]);
+            return Err("sync: save copy failed".into());
+        }
+        Ok(crcs[0])
+    }
+
+    /// GB-162: an empty cartridge RAM (0xFF, as without a save file) in both cores, read back.
+    fn sync_fill_save(device: &mut Device, size: u32) -> Result<u32, String> {
+        const SRAM: u32 = 0x4000_0000;
+        let command = || fpga::SpiCommand::new(fpga::FpgaSpiWordSize::Bits16);
+        let clock = Some(Hertz(5_000 * 1000 * 2).min(fpga::MAX_SPI_READ_CLOCK));
+        let mut buf = vec![0u8; 2048];
+        let mut expected = 0xFFFF_FFFFu32;
+        let mut pos = 0u32;
+        while pos < size {
+            let n = ((size - pos) as usize).min(buf.len());
+            buf[..n].fill(0xFF);
+            expected = Self::crc32(expected, &buf[..n]);
+            for base in [0, SYNC_RAM_BASE] {
+                device.fpga.spi_write(clock, command(), SRAM + base + pos, &buf[..n])
+                    .map_err(|_| "sync: SRAM write failed")?;
+            }
+            pos += n as u32;
+        }
+        for base in [0, SYNC_RAM_BASE] {
+            let mut crc = 0xFFFF_FFFFu32;
+            let mut pos = 0u32;
+            while pos < size {
+                let n = ((size - pos) as usize).min(buf.len());
+                device.fpga.spi_read(clock, command(), SRAM + base + pos, &mut buf[..n])
+                    .map_err(|_| "sync: SRAM read failed")?;
+                crc = Self::crc32(crc, &buf[..n]);
+                pos += n as u32;
+            }
+            if crc != expected {
+                log::error!("sync: empty save at {:05x} differs, {:08x} / {:08x}", base, expected, crc);
+                return Err("sync: empty save failed".into());
+            }
+        }
+        Ok(expected)
     }
 
     /// Save-state file extension for a slot: `<rom>.ss0` to `<rom>.ss3`.
@@ -133,7 +218,7 @@ impl Gameboy {
             button_remap: true,
             files: [
                 CoreFile {
-                    id: SETTING_RESET,
+                    id: FILE_ROM,
                     label: "ROM".try_into().unwrap(),
                     extensions: ["gb".try_into().unwrap(), "gbc".try_into().unwrap()]
                         .into_iter()
@@ -155,7 +240,7 @@ impl Gameboy {
                     transfer_word_size: fpga::FpgaSpiWordSize::Bits32,
                 },
                 CoreFile {
-                    id: 1,
+                    id: FILE_SAVE,
                     label: "Save".try_into().unwrap(),
                     extensions: ["sav".try_into().unwrap()].into_iter().collect(),
                     filename: None,
@@ -174,7 +259,7 @@ impl Gameboy {
                     transfer_word_size: fpga::FpgaSpiWordSize::Bits16,
                 },
                 CoreFile {
-                    id: 2,
+                    id: FILE_BIOS_CGB,
                     label: "BIOS CGB".try_into().unwrap(),
                     extensions: ["bin".try_into().unwrap()].into_iter().collect(),
                     filename: None, // TODO
@@ -193,7 +278,7 @@ impl Gameboy {
                     transfer_word_size: fpga::FpgaSpiWordSize::Bits8,
                 },
                 CoreFile {
-                    id: 3,
+                    id: FILE_BIOS_DMG,
                     label: "BIOS DMG".try_into().unwrap(),
                     extensions: ["bin".try_into().unwrap()].into_iter().collect(),
                     filename: None, // TODO
@@ -311,14 +396,6 @@ impl Gameboy {
                         file_slots: None,
                     },
                 },
-                CoreSetting {
-                    id: 0,
-                    label: "Reset Core".into(),
-                    address: REG_RESET_ONCE,
-                    mask: 0,
-                    default: 0,
-                    inner: CoreSettingType::Action { value: 1, file: None, load: false },
-                },
             ]
             .into_iter()
             .collect(),
@@ -330,7 +407,10 @@ impl Gameboy {
 impl Bitstream for Gameboy {
     fn on_vblank_irq(&mut self) {
         let mut device = Device::lock();
-        let sample = device.imu.read_accel().unwrap();
+        let Ok(sample) = device.imu.read_accel() else {
+            log::warn!("Error sampling accel");
+            return;
+        };
         // Invert X and Y
         let accel_x = ((0x81D0 as f32) + ((0x70 as f32) * -sample.x)) as u16;
         let accel_y = ((0x81D0 as f32) + ((0x70 as f32) * -sample.y)) as u16;
@@ -379,6 +459,7 @@ impl CoreHandler for Gameboy {
                 }
             }
             file.seek(std::io::SeekFrom::Start(0)).map_err(|_| "I/O")?;
+            self.rom_id = Self::crc32(Self::crc32(0xFFFF_FFFF, &header_bytes), &self.rom_file_size.to_le_bytes());
             self.rom_header = Some(rom_header);
         } else if id == FILE_SAVE {
             let rom_header = self.rom_header.as_ref().unwrap();
@@ -413,11 +494,51 @@ impl CoreHandler for Gameboy {
         Ok(())
     }
 
+    fn sync_blank_save(&mut self) -> Result<Option<u32>, String> {
+        let Some(ram_size) = self.rom_header.as_ref().map(|h| h.ram_size).filter(|_| self.sync) else {
+            return Ok(None);
+        };
+        let save_crc = Self::sync_fill_save(&mut Device::lock(), ram_size)?;
+        log::info!("sync: playing without the save, empty save={:08x}", save_crc);
+        Ok(Some(save_crc))
+    }
+
     fn on_before_run(&mut self) -> Result<(), String> {
         self.ram_path = None;
 
         let mut device = Device::lock();
         self.initialize(&mut device).map_err(|e| e.to_string())?;
+
+        // GB-145: two cores with frame-locked buttons, when the link page asks for it, the
+        // bitstream has the second core and the cartridge has nothing tied to real time.
+        let mut sync = None;
+        if crate::link::link_requested() {
+            let caps = device.fpga.read_u32(fpga::LINK_SYNC_CAPS).ok();
+            match self.rom_header.as_ref() {
+                _ if caps != Some(fpga::LINK_SYNC_CAPS_VALUE) =>
+                    crate::link::sync_unavailable("core without second core", "core has no 2nd core"),
+                None => crate::link::sync_unavailable("physical cartridge", "real cartridge"),
+                Some(h) if h.has_rtc || h.has_sensor =>
+                    crate::link::sync_unavailable("cartridge clock or sensor not supported", "game has a clock"),
+                Some(h) => {
+                    let save_crc = Self::sync_copy_save(&mut device, h.ram_size)?;
+                    // GB or GBC mode changes what the cores do: part of the identity.
+                    let config = device.fpga.read_u32(REG_EMU_CONFIG).unwrap_or(0);
+                    sync = Some((Self::crc32(self.rom_id, &config.to_le_bytes()), save_crc));
+                }
+            }
+        }
+        self.sync = sync.is_some();
+        if let Some((rom_id, save_crc)) = sync {
+            let _ = device.fpga.write_u32(fpga::LINK_SYNC_RAM_BASE, SYNC_RAM_BASE);
+            // Enabled and held: the radio task starts the cores when the partner matches.
+            let _ = device.fpga.write_u32(fpga::LINK_SYNC_CONTROL, 1 | crate::link::SYNC_DELAY << 4);
+            log::info!("sync: armed rom={:08x} save={:08x}, waiting for the partner (cartridge RAM is not saved)",
+                rom_id, save_crc);
+            crate::link::set_sync(true, false, rom_id, save_crc);
+        } else {
+            crate::link::set_sync(false, false, 0, 0);
+        }
 
         if let Some(rom_header) = self.rom_header.as_ref() {
             // Configure RTC if needed
@@ -460,6 +581,11 @@ impl CoreHandler for Gameboy {
 
     fn get_file_size(&mut self, id: u16) -> Option<u32> {
         assert!(id == FILE_SAVE);
+        if self.sync {
+            // GB-145 first test: both consoles must start from the same save next time.
+            log::info!("sync: cartridge RAM not saved");
+            return Some(0);
+        }
         Some(self.rom_header.as_ref().map_or(0, |h| h.ram_size))
     }
 
@@ -467,7 +593,7 @@ impl CoreHandler for Gameboy {
         assert!(id == FILE_SAVE);
 
         // Save RTC
-        if self.rom_header.as_ref().map_or(false, |h| h.has_rtc) {
+        if self.rom_header.as_ref().is_some_and(|h| h.has_rtc) {
             use rtc::RtcState;
             let mut device = Device::lock();
             let rtc_state = RtcState::from_fpga(device.fpga.read_u32(REG_RTC_STATE).unwrap());
@@ -487,7 +613,7 @@ impl CoreHandler for Gameboy {
         let mut device = Device::lock();
 
         // Enable/disable IMU as needed
-        if self.rom_header.as_ref().map_or(false, |h| h.has_sensor) {
+        if self.rom_header.as_ref().is_some_and(|h| h.has_sensor) {
             if paused {
                 device.imu.disable_accel().unwrap();
             } else {

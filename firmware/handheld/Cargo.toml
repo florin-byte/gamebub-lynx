@@ -1,6 +1,8 @@
+cargo-features = ["trim-paths"]
+
 [package]
 name = "handheld"
-version = "1.1.0-beta3"
+version = "1.1.0-beta4"
 authors = ["Eli Lipsitz <eli.lipsitz@gmail.com>"]
 edition = "2021"
 resolver = "2"
@@ -12,12 +14,17 @@ harness = false   # do not use the built in cargo test harness -> resolve rust-a
 
 [profile.release]
 opt-level = "s"
+trim-paths = "object"
 
 [profile.dev]
 debug = true    # Symbols are nice and they don't increase the size on Flash
 opt-level = "z"
+trim-paths = "object"
 
 [features]
+fast-link-spi = []
+link-diag = ["fast-link-spi"] # Boot-time wireless console diagnostic; opt-in only
+link-bench = ["link-diag"] # Explicit radio-only measurement image; no game bridge
 default = ["std", "embassy", "esp-idf-svc/native"]
 rev1 = ["has_io_expander", "has_ili9488", "has_max17048"]  # Build for handheld revision 1
 rev2 = ["has_io_expander", "has_ili9488", "has_max17048"]  # Build for handheld revision 2
@@ -30,6 +37,9 @@ has_st7262 = []
 has_max17048 = []
 has_bq27427 = []
 has_ili9806e = []
+
+# TODO: Remove when 1.1 is released
+no_beta_cores = []
 
 pio = ["esp-idf-svc/pio"]
 std = [
@@ -76,6 +86,7 @@ heatshrink-lib = { version = "1.0.0", features = ["embedded-io"] }
 embedded-io-adapters = { version = "0.6.0", features = ["std"] }
 serde_json = "1.0.151"
 arrayvec = { version = "0.7.8", features = ["serde"] }
+natord = "1.0.9"
 
 [build-dependencies]
 embuild = "0.33.0"
@@ -87,6 +98,10 @@ bindings_header = "bindings_esp_tinyusb.h"
 
 [[package.metadata.esp-idf-sys.extra_components]]
 remote_component = { name = "espressif/tinyusb", version = "^0.19.0" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["components/cwl"]
+bindings_header = "bindings_cwl.h"
 
 [patch.crates-io]
 esp-idf-sys = { git = "https://github.com/esp-rs/esp-idf-sys.git", rev = "a9356d9" }

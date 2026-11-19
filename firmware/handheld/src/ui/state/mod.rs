@@ -17,7 +17,7 @@ mod settings;
 mod setup;
 mod tools;
 
-pub use game::CoreSettingUiItem;
+pub use game::{CheatsPage, CheatsPageCell, CheatsPageRow, CoreSettingUiItem};
 
 pub struct UiState {
     root: Weak<MainWindow>,
@@ -30,8 +30,11 @@ pub struct UiState {
     settings: settings::SettingsState,
     core_file_select_directory: PathBuf,
     core_file_select_filename: String,
+    /// The game chosen while "Play / Dual Core Link" is asked.
+    core_file_select_pending: Option<(PathBuf, String)>,
     core_file_select_timer: Timer,
     clock_timer: Timer,
+    link_timer: Timer,
 }
 
 impl UiState {
@@ -45,8 +48,10 @@ impl UiState {
             settings: settings::SettingsState::default(),
             core_file_select_directory: PathBuf::new(),
             core_file_select_filename: String::new(),
+            core_file_select_pending: None,
             core_file_select_timer: Timer::default(),
             clock_timer: Timer::default(),
+            link_timer: Timer::default(),
         };
         let state = Rc::new(RefCell::new(state));
         state.borrow_mut().setup(state.clone(), device);
@@ -150,9 +155,8 @@ impl UiState {
         backend.on_screen_enter(move |screen| {
             // Called when a new screen is entered, before the new frame is rendered.
             log::info!("Screen enter: {:?}", screen);
-            match screen {
-                ScreenId::Settings => state_.borrow_mut().on_settings_enter(),
-                _ => {}
+            if screen == ScreenId::Settings {
+                state_.borrow_mut().on_settings_enter()
             }
         });
 

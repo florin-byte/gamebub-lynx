@@ -1,3 +1,5 @@
+#![allow(clippy::identity_op)]
+
 use anyhow::Context;
 
 use device::Device;
@@ -18,6 +20,7 @@ mod hwinfo;
 mod input;
 mod kvs;
 mod led;
+pub mod link;
 mod power;
 pub mod ui;
 mod util;
@@ -39,6 +42,12 @@ fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
     esp_idf_svc::log::EspLogger::initialize_default();
     esp_idf_svc::log::set_target_level("gpio", log::LevelFilter::Warn).unwrap();
+
+    let _ = kvs::Kvs::init();
+
+    let peripherals = esp_idf_svc::hal::peripherals::Peripherals::take()?;
+    let board = device::board::Board::new(peripherals);
+    Device::confirm_power_on(&board);
     crash_handler::setup();
 
     if let Err(e) = usb::configure_usb(usb::UsbMode::ConsoleAndVendor) {
@@ -47,7 +56,6 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("Hardware version: {}", hwinfo::get_hardware_version());
     log::info!("Serial: {}", hwinfo::get_serial_number());
-    kvs::Kvs::init()?;
 
     // Check that the firmware is compatible with the listed revision.
     cfg_if::cfg_if! {
@@ -73,7 +81,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     // Proceed to initialize device.
-    Device::init()?;
+    Device::init(board)?;
     let mut device = Device::lock();
     if device.sdcard.is_none() {
         log::warn!("Failed to mount SD card");
@@ -82,6 +90,7 @@ fn main() -> anyhow::Result<()> {
 
     // Setup workers.
     worker::start();
+    link::log_memory("boot-before-radio");
     power::PowerManager::start(&mut device);
 
     // Initial programming FPGA

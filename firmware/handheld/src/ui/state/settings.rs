@@ -13,6 +13,7 @@ use crate::util::localtime;
 
 use super::UiState;
 
+#[allow(clippy::module_inception)]
 mod settings {
     use crate::kvs::{keys, KvsKey};
     use crate::ui::state::ScreenId;
@@ -23,6 +24,17 @@ mod settings {
     }
 
     pub enum Entry {
+        /// A line of information: nothing to enter or change.
+        Info {
+            text: fn() -> String,
+        },
+        /// Which console the wireless link pairs with: any, or one of those known.
+        Partner,
+        /// GB-162: the "Dual Core Link" checkbox of a system. It can only be ticked while the
+        /// two-core bitstream is in system/ on the card; without it the row says what is missing.
+        DualCoreLink {
+            gba: bool,
+        },
         Checkbox {
             name: &'static str,
             key: &'static KvsKey<bool>,
@@ -55,6 +67,10 @@ mod settings {
             Entry::Subpage {
                 name: "General",
                 page: &PAGE_GENERAL,
+            },
+            Entry::Subpage {
+                name: "Wireless link",
+                page: &PAGE_WIRELESS,
             },
             Entry::Subpage {
                 name: "Dock",
@@ -105,15 +121,34 @@ mod settings {
                 key: &keys::STARTUP_ACTION,
                 choices: &["Main Menu", "Run Cartridge"],
             },
+            Entry::Checkbox {
+                name: "Require long press to power on (*)",
+                key: &keys::DEEP_SLEEP,
+            },
         ],
     };
 
     pub static PAGE_DOCK: Page = Page {
         name: "Dock",
-        entries: &[Entry::Checkbox {
-            name: "Swap A/B and X/Y",
-            key: &keys::DOCK_SWAP_ABXY,
-        }],
+        entries: &[
+            Entry::Checkbox {
+                name: "Swap A/B and X/Y",
+                key: &keys::DOCK_SWAP_ABXY,
+            },
+            Entry::Checkbox {
+                name: "Use built-in screen when docked",
+                key: &keys::DOCK_USE_BUILTIN_SCREEN,
+            },
+        ],
+    };
+
+    fn console_name() -> String {
+        format!("This console: {}", crate::link::own_name())
+    }
+
+    pub static PAGE_WIRELESS: Page = Page {
+        name: "Wireless link",
+        entries: &[Entry::Info { text: console_name }, Entry::Partner],
     };
 
     pub static PAGE_CORE_GB: Page = Page {
@@ -137,6 +172,7 @@ mod settings {
                 key: &keys::DMG_COLOR_PALETTE,
                 choices: &["Grayscale", "DMG Green", "GB Pocket"],
             },
+            Entry::DualCoreLink { gba: false },
         ],
     };
 
@@ -160,6 +196,7 @@ mod settings {
                 name: "Warn about missing BIOS",
                 key: &keys::GBA_BIOS_WARNING,
             },
+            Entry::DualCoreLink { gba: true },
         ],
     };
 }
@@ -265,6 +302,40 @@ impl Model for SettingsModel {
     fn row_data(&self, row: usize) -> Option<Self::Data> {
         let entry = self.page.entries.get(row)?;
         let row = match entry {
+            settings::Entry::Info { text } => SettingEntry {
+                name: text().into(),
+                r#type: SettingType::Info,
+                ..Default::default()
+            },
+            settings::Entry::Partner => {
+                let (list, index) = partner_choices();
+                let mut choices = vec![slint::SharedString::from("Any console")];
+                choices.extend(list.iter().map(|p| slint::SharedString::from(p.name.as_str())));
+                SettingEntry {
+                    name: "Play with".into(),
+                    r#type: SettingType::List,
+                    value: SettingValue {
+                        int_value: index,
+                        ..SettingValue::default()
+                    },
+                    choices: ModelRc::new(choices.into_iter().collect::<slint::VecModel<_>>()),
+                }
+            }
+            settings::Entry::DualCoreLink { gba } if crate::link::dual_core_bitstream(*gba).is_none() => SettingEntry {
+                // As long as the console name row above (a longer text may not fit the 160 px page).
+                name: "Dual Core Link: not on card".into(),
+                r#type: SettingType::Info,
+                ..Default::default()
+            },
+            settings::Entry::DualCoreLink { gba } => SettingEntry {
+                name: "Dual Core Link".into(),
+                r#type: SettingType::Checkbox,
+                value: SettingValue {
+                    bool_value: crate::link::link_play_enabled(*gba),
+                    ..SettingValue::default()
+                },
+                ..Default::default()
+            },
             settings::Entry::Checkbox { name, key } => SettingEntry {
                 name: (*name).into(),
                 r#type: SettingType::Checkbox,
@@ -347,6 +418,18 @@ impl SettingsModel {
         };
 
         match entry {
+            settings::Entry::Info { .. } => {}
+            settings::Entry::Partner => {
+                let (list, _) = partner_choices();
+                let chosen = usize::try_from(value.int_value - 1).ok().and_then(|i| list.get(i));
+                crate::link::set_partner(chosen.map(|p| p.mac));
+            }
+            settings::Entry::DualCoreLink { gba } => {
+                if crate::link::dual_core_bitstream(*gba).is_some() {
+                    let key = if *gba { &crate::kvs::keys::WL_LINK_GBA } else { &crate::kvs::keys::WL_LINK_GB };
+                    key.set(&value.bool_value);
+                }
+            }
             settings::Entry::Checkbox { key, .. } => key.set(&value.bool_value),
             settings::Entry::List { key, .. } => key.set(&value.int_value),
             settings::Entry::SystemDatetime { .. } => {
@@ -356,7 +439,7 @@ impl SettingsModel {
                 Device::lock().set_datetime(dt);
             }
             settings::Entry::Subpage { page, .. } => {
-                return SettingsAction::Subpage(*page);
+                return SettingsAction::Subpage(page);
             }
             settings::Entry::Screen { screen, .. } => {
                 return SettingsAction::Screen(*screen);
@@ -367,6 +450,17 @@ impl SettingsModel {
     }
 }
 
+/// The consoles the wireless link knows (the remembered one first) and the row of the list
+/// that is chosen now: 0 is "Any console".
+fn partner_choices() -> (Vec<crate::link::Partner>, i32) {
+    let list = crate::link::partners();
+    let saved = crate::kvs::keys::WL_PEER.get().flatten();
+    let index = saved
+        .and_then(|(mac, _)| list.iter().position(|p| p.mac == mac))
+        .map_or(0, |i| i as i32 + 1);
+    (list, index)
+}
+
 enum SettingsAction {
     None,
     Subpage(&'static Page),
@@ -375,6 +469,7 @@ enum SettingsAction {
 
 /// Helper function used by the UI to be able to correctly modify individual datetime components.
 pub fn settings_datetime_add(source: SettingDatetime, delta: SettingDatetime) -> SettingDatetime {
+    #[allow(clippy::manual_clamp)]
     fn inner(
         source: &SettingDatetime,
         delta: SettingDatetime,

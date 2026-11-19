@@ -4,6 +4,8 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+// The GBA save type detector reads the data as u32 words (align_to::<u32>), so the buffer must be 4-aligned.
+#[repr(C, align(4))]
 pub struct ScratchBuffer<const N: usize> {
     data: UnsafeCell<[u8; N]>,
     used: AtomicBool,

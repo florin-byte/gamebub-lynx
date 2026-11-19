@@ -15,7 +15,7 @@ object GBA extends App {
   ChiselStage.emitSystemVerilogFile(new GBA, args)
 }
 
-class GBA extends Module {
+class GBA(linkEmulatedTime: Boolean = false) extends Module {
   val io = IO(new Bundle {
     /// Global enable signal
     val enable = Input(Bool())
@@ -43,6 +43,7 @@ class GBA extends Module {
     val ewramStall = Output(Bool())
 
     /// Link port
+    val wireless = new gba.link.WirelessSioPort
     val link = new Link.Interface
 
     /// Game Boy Player Rumble
@@ -179,7 +180,8 @@ class GBA extends Module {
   cart.io.abortRequest := cartPrefetch.io.cartInitiatorAbortRequest
 
   // Link port controller
-  val link = Module(new Link)
+  val link = Module(new Link(emulatedTime = linkEmulatedTime))
+  link.io.wireless <> io.wireless
   link.io.enable := io.enable
   io.link <> link.io.port
   mmio.targets(8) <> link.io.mmio

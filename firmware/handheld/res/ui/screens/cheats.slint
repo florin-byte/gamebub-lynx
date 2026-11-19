@@ -1,0 +1,145 @@
+// A paged overview. The grid and the detailed description use separate scenes.
+import { Backend, CheatCell } from "../common.slint";
+
+// Static labels avoid allocating a separate component for each grid cell.
+component CheatGridLabel inherits Text {
+    in property <int> slot;
+    in property <int> cell-index;
+    in property <int> selected-index;
+    private property <CheatCell> cell: Backend.cheat-cells[root.cell-index];
+
+    visible: root.cell-index < Backend.cheat-cells.length;
+    x: mod(root.slot, 3) * self.width;
+    y: floor(root.slot / 3) * self.height;
+    horizontal-alignment: center;
+    vertical-alignment: center;
+    font-family: "Ark Pixel 10px Prop latin";
+    font-size: 10px;
+    color: root.cell-index == root.selected-index ? black : white;
+    text: root.visible ? (root.cell.on ? "+" : "-") + root.cell.text : "";
+    overflow: elide;
+}
+
+export component CheatsPage inherits FocusScope {
+    callback close();
+
+    private property <int> requested: 0;
+    private property <int> count: Backend.cheat-cells.length;
+    private property <int> selected: clamp(root.requested, 0, max(0, root.count - 1));
+    private property <int> page-start: root.selected - mod(root.selected, 9);
+    private property <int> page-end: min(root.count, root.page-start + 9);
+    private property <int> last-page: max(0, root.count - 1) - mod(max(0, root.count - 1), 9);
+    private property <bool> details-open: false;
+    private property <bool> selected-active: root.count > 0 && Backend.cheat-cells[root.selected].on;
+    private property <length> column-width: (root.width - 12px) / 3;
+
+    key-pressed(event) => {
+        if (event.text == "b") {
+            if (root.details-open) {
+                root.details-open = false;
+            } else {
+                root.close();
+            }
+        } else if (root.count > 0) {
+            if (event.text == "y") {
+                root.details-open = !root.details-open;
+            } else if (event.text == "l") {
+                root.requested = root.page-start > 0 ? root.selected - 9
+                    : min(root.count - 1, root.last-page + mod(root.selected, 9));
+            } else if (event.text == "r") {
+                root.requested = root.page-end < root.count ? min(root.count - 1, root.selected + 9)
+                    : mod(root.selected, 9);
+            } else if (event.text == Key.UpArrow && root.selected - 3 >= root.page-start) {
+                root.requested = root.selected - 3;
+            } else if (event.text == Key.DownArrow && root.selected + 3 < root.page-end) {
+                root.requested = root.selected + 3;
+            } else if (event.text == Key.LeftArrow && mod(root.selected, 3) > 0) {
+                root.requested = root.selected - 1;
+            } else if (event.text == Key.RightArrow && mod(root.selected, 3) < 2 && root.selected + 1 < root.page-end) {
+                root.requested = root.selected + 1;
+            } else if (event.text == "a") {
+                Backend.cheat-activate(Backend.cheat-cells[root.selected].id);
+            } else if (event.text == "x") {
+                Backend.cheats-all-off();
+            }
+        }
+        accept
+    }
+
+    Rectangle {
+        x: 6px;
+        y: 9px;
+        width: root.width - 12px;
+        height: root.height - 18px;
+
+        Text {
+            x: 5px;
+            y: 4px;
+            font-family: "Ark Pixel 10px Prop latin";
+            font-size: 10px;
+            color: white;
+            text: root.count == 0 ? "No cheats"
+                : root.details-open ? (root.selected-active ? "Activ" : "Inactiv")
+                : root.count > 999 ? "999+"
+                : (floor(root.page-start / 9) + 1) + "/" + ceil(root.count / 9);
+        }
+
+        if !root.details-open: Rectangle {
+            y: 20px;
+            width: parent.width;
+            height: parent.height - 38px;
+
+            Rectangle {
+                width: parent.width;
+                height: parent.height;
+                border-width: 1px;
+                border-color: #585858;
+            }
+            Rectangle { x: root.column-width; width: 1px; height: parent.height; background: #585858; }
+            Rectangle { x: 2 * root.column-width; width: 1px; height: parent.height; background: #585858; }
+            Rectangle { y: parent.height / 3; width: parent.width; height: 1px; background: #585858; }
+            Rectangle { y: 2 * parent.height / 3; width: parent.width; height: 1px; background: #585858; }
+
+            Rectangle {
+                visible: root.count > 0;
+                x: mod(root.selected, 3) * root.column-width + 1px;
+                y: floor(mod(root.selected, 9) / 3) * parent.height / 3 + 1px;
+                width: root.column-width - 2px;
+                height: parent.height / 3 - 2px;
+                background: white;
+            }
+
+            CheatGridLabel { slot: 0; cell-index: root.page-start + 0; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 1; cell-index: root.page-start + 1; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 2; cell-index: root.page-start + 2; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 3; cell-index: root.page-start + 3; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 4; cell-index: root.page-start + 4; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 5; cell-index: root.page-start + 5; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 6; cell-index: root.page-start + 6; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 7; cell-index: root.page-start + 7; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+            CheatGridLabel { slot: 8; cell-index: root.page-start + 8; selected-index: root.selected; width: root.column-width; height: parent.height / 3; }
+        }
+
+        if root.details-open && root.count > 0: Text {
+            x: 5px;
+            y: 24px;
+            width: parent.width - 10px;
+            height: parent.height - 42px;
+            font-family: "Ark Pixel 10px Prop latin";
+            font-size: 10px;
+            color: white;
+            wrap: word-wrap;
+            overflow: elide;
+            text: Backend.cheat-details[Backend.cheat-cells[root.selected].id];
+        }
+
+        Text {
+            x: 5px;
+            y: parent.height - 13px;
+            font-family: "Ark Pixel 10px Prop latin";
+            font-size: 10px;
+            color: root.details-open ? white : #808080;
+            text: root.details-open ? "A On/Off  X All off  B Back" : "L/R  Y Info";
+        }
+    }
+}

@@ -108,7 +108,10 @@ class Cpu(config: Gameboy.Configuration) extends Module {
   control.io.interruptsPending := pendingInterruptField =/= 0.U
   when (io.clocker.phiPulse && controlSignals.pcNext === PcNext.interrupt) {
     // Final step of interrupt process: jump to interrupt (and ack it in 'IF').
-    regIF := regIF & (~(1.U(1.W) << pendingInterruptIndex)).asUInt
+    // GB-162: phiPulse is also an enable cycle, and this assignment replaces the one above. A
+    // request that arrives on this very cycle must stay recorded: the wireless serial request
+    // is presented for one enable cycle only, and a game waits for it forever.
+    regIF := (regIF & (~(1.U(1.W) << pendingInterruptIndex)).asUInt) | io.interruptRequest.asUInt
   }
 
   // Control

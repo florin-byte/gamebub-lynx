@@ -86,9 +86,33 @@ impl UiState {
                     state.cores_handle_file_select_selected(PathBuf::new(), "");
                 } else {
                     let path = state.core_file_select_directory.join(data.name.as_str());
-                    state.cores_handle_file_select_selected(path, data.name.as_str());
+                    // GB-162: a game of a system with "Dual Core Link" on is asked for first.
+                    let gba = match kvs::keys::LAST_CORE.get().as_deref() {
+                        Some("Game-Bub.GBA") => Some(true),
+                        Some("Game-Bub.GB") => Some(false),
+                        _ => None,
+                    };
+                    if gba.is_some_and(crate::link::link_play_enabled) && path.is_file() {
+                        state.core_file_select_pending = Some((path, data.name.to_string()));
+                        backend.set_core_file_select_ask(true);
+                    } else {
+                        state.cores_handle_file_select_selected(path, data.name.as_str());
+                    }
                 }
             }
+        });
+
+        let state_ = state.clone();
+        backend.on_core_file_select_answer(move |answer| {
+            let mut state = state_.borrow_mut();
+            let root: crate::ui::slint::MainWindow = state.root.unwrap();
+            root.global::<Backend>().set_core_file_select_ask(false);
+            let Some((path, name)) = state.core_file_select_pending.take() else { return };
+            if answer < 0 {
+                return;
+            }
+            crate::link::request_link_game(answer == 1);
+            state.cores_handle_file_select_selected(path, &name);
         });
 
         let state_ = state.clone();
@@ -97,7 +121,12 @@ impl UiState {
             state.cores_handle_file_select_selected(PathBuf::new(), "..");
         });
 
+        let state_ = state.clone();
         backend.on_core_file_select_cancel(move || {
+            let mut state = state_.borrow_mut();
+            state.core_file_select_pending = None;
+            state.root.unwrap().global::<Backend>().set_core_file_select_ask(false);
+            state.root.unwrap().invoke_set_title("Cores".into());
             worker::send(worker::Message::CoreFileCancelled);
         });
     }
@@ -193,11 +222,11 @@ impl UiState {
         let path = &self.core_file_select_directory;
         let mut directory = path
             .strip_prefix(BASE_DIR)
-            .unwrap_or(&path)
+            .unwrap_or(path)
             .to_string_lossy()
             .into_owned();
         if !directory.starts_with("/") {
-            directory.insert_str(0, "/");
+            directory.insert(0, '/');
         }
 
         let root = self.root.unwrap();
@@ -255,6 +284,7 @@ impl UiState {
     pub fn cores_set_error(&mut self, error: String) {
         let root = self.root.unwrap();
         let backend = root.global::<Backend>();
+        root.invoke_set_title("Cores".into());
         backend.set_core_error(error.into());
         backend.set_core_subscreen(CoreSubscreen::Error);
         root.invoke_set_screen(ScreenId::Cores);

@@ -31,9 +31,10 @@ export component CoreDetails {
                 spacing: 8px;
                 width: 100%;
 
+                // GB-175: each column as wide as its text (the labels were 100 px and the values 100% of the
+                // screen beside them, so long names ran off the right edge); the names are elided if needed.
                 Text {
                     color: Theme.fg;
-                    width: 100px;
                     horizontal-alignment: right;
                     font-weight: 800;
                     text: ( //
@@ -44,8 +45,8 @@ export component CoreDetails {
 
                 Text {
                     color: Theme.fg;
-                    width: 100%;
                     horizontal-alignment: left;
+                    overflow: elide;
                     text: ( //
                             "\{core-name}" + //
                             "\n\{core-author}" //

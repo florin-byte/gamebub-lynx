@@ -1,5 +1,8 @@
 import "../fonts/ark-pixel-12px-proportional.ttf";
 import "../fonts/ark-pixel-12px-proportional-bold.ttf";
+import "../fonts/ark-pixel-10px-proportional.ttf";
+// GB-173: Ark Pixel 12px with every glyph grown by one pixel, for the outline of the in-game menu.
+import "../fonts/retro-bub-menu-outline-12px.ttf";
 import {
     SettingEntry,
     SettingValue,
@@ -33,6 +36,15 @@ export struct BatteryInfo {
     current: float,
 }
 
+/// A cell of the in-game Cheats page.
+export struct CheatCell {
+    id: int,
+    text: string,
+    on: bool,
+    /// One of a list: only one can be on.
+    radio: bool,
+}
+
 export global Palette { }
 
 export global Global {
@@ -46,6 +58,8 @@ export global Global {
     // Whether the UI is transparent. Start true for the boot animation.
     in-out property <bool> ui-transparent: true;
     in-out property <bool> ui-status-bar: true;
+    // Whether the Power menu is open.
+    in-out property <bool> power-menu-open: false;
 
     public function set-screen(screen: ScreenId) {
         current-screen = screen;
@@ -118,6 +132,11 @@ export global Backend {
     in property <percent> core-progress: 0%;
     in property <bool> core-is-loading: false;
     in property <[CoreSetting]> core-settings;
+    in property <bool> cheats-available: false;
+    in property <[CheatCell]> cheat-cells;
+    /// Detail text indexed by the original cheat cell id.
+    in property <[string]> cheat-details;
+    in property <int> cheats-on;
 
     callback volume-changed(int);
     callback brightness-changed(int);
@@ -127,9 +146,38 @@ export global Backend {
     callback setup-complete();
     callback main-menu-run-cartridge();
     callback game-set-focused(bool);
+    in property <bool> game-wireless-link: false;
+    in-out property <bool> link-page-open: false;
+    in property <string> link-status: "Off";
+    in property <string> link-detail;
+    in property <bool> link-active: false;
+    callback link-toggle();
+    in property <bool> link-fast-gb: false;
+    callback link-fast-gb-toggle();
+    in property <bool> link-sync-gb: false;
+    callback link-sync-gb-toggle();
+    // GB-162: the waiting room of a two-core link game, drawn over the game screen.
+    // The first line says who this console is connected to, the lines below what to do.
+    in property <bool> link-room-open: false;
+    in property <string> link-room-status;
+    in property <[string]> link-room-lines;
+    in property <string> link-room-hint;
+    // B leaves the game: only while it is not running.
+    in property <bool> link-room-can-exit: false;
+    // A: play with the partner shown.
+    in property <bool> link-room-can-accept: false;
+    callback link-room-accept();
+    in property <[string]> link-partners;
+    callback link-partners-load();
+    callback link-partner-choose(int);
+    callback game-reset();
     callback game-exit();
     callback game-settings-load();
     callback game-settings-set(int, int);
+    callback cheats-load();
+    callback cheat-activate(int);
+    callback cheats-all-off();
+    callback cheats-page-open(bool);
     callback settings-changed(int, SettingValue);
     callback settings-back() -> bool;
     callback tools-start-usb-drive();
@@ -142,6 +190,9 @@ export global Backend {
     callback core-file-select-selected(int);
     callback core-file-select-up();
     callback core-file-select-cancel();
+    // GB-162: "Play / Dual Core Link" for the game just chosen. Answer: 0, 1, or -1 (back).
+    in property <bool> core-file-select-ask: false;
+    callback core-file-select-answer(int);
 
     callback screen-enter(ScreenId);
 

@@ -58,6 +58,10 @@ class SimGameboy extends Module {
     optimizeForSimulation = true,
   )
   val gameboy = Module(new Gameboy(gameboyConfig))
+  gameboy.io.wireless.config := 0.U
+  gameboy.io.wireless.clear := false.B
+  gameboy.io.wireless.command.valid := false.B
+  gameboy.io.wireless.command.bits := 0.U
   gameboy.io.isCgb := true.B
   when (io.saveState.resetCore) {
     gameboy.reset := true.B

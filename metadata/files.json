@@ -16,7 +16,7 @@
 		{
 			"id": 1,
 			"label": "Boot ROM",
-			"filename": "/sdcard/system/lynxboot.img",
+			"filename": "lynxboot.img",
 			"optional": false,
 			"read_only": true,
 			"address": "0x50000000",

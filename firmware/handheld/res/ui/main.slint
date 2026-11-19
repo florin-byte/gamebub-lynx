@@ -77,7 +77,7 @@ export component MainWindow inherits Window {
         height: parent.height - self.y;
 
         VerticalLayout {
-            padding: 4px;
+            padding: Global.ui-transparent ? 0 : 4px;
             Rectangle {
                 if (Global.current-screen == ScreenId.Setup): SetupScreen {
                     init => {
@@ -169,6 +169,7 @@ export component MainWindow inherits Window {
             }
             if (event.text == "Power" || event.text == "p") {
                 power-menu.show();
+                Global.power-menu-open = true;
             }
             accept
         }

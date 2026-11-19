@@ -62,27 +62,11 @@ impl CoreManager {
                 }
             })
             .collect::<Vec<_>>();
-        let mut list = list;
-        if let Some(cheats) = self.cheats.as_ref() {
-            list.extend(cheats.ui_items());
-        }
         crate::ui::send(crate::ui::Message::CoreSettingsList(list));
     }
 
     pub fn setting_changed(&mut self, id: u16, ui_value: u32) {
         use super::CoreSettingType::*;
-        if id >= super::cheats::ID_BASE {
-            let Some(result) = self.cheats.as_mut().map(|c| c.changed(id, ui_value)) else { return };
-            let text = match &result {
-                Ok(text) | Err(text) => text.clone(),
-            };
-            crate::ui::send(crate::ui::Message::Notification(crate::ui::Notification::new_short(text)));
-            if result.is_err() {
-                // Show the entry's old value again.
-                self.ui_load_settings();
-            }
-            return;
-        }
         let core = match self.core_info.as_ref() {
             Some(x) => x,
             None => return,

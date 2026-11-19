@@ -70,7 +70,30 @@ pub static UI_THEME: KvsKey<i32> = KvsKey::new_with_default("ui-theme", 0);
 /// Whether times are shown in 24-hour format.
 pub static TIME_24H: KvsKey<bool> = KvsKey::new_with_default("time-24h", false);
 
+/// Wireless identity and explicitly chosen partner (MAC and last known NAME).
+pub static WL_NAME: KvsKey<String> = KvsKey::new("wl-name");
+pub static WL_PEER: KvsKey<Option<([u8; 6], String)>> = KvsKey::new_with_default("wl-peer", None);
+/// GB/GBC wireless link at 12 Mbps instead of 1 Mbps (link page setting).
+pub static WL_FAST_GB: KvsKey<bool> = KvsKey::new_with_default("wl-fast-gb", false);
+/// GB/GBC wireless link by two cores per console and frame-locked buttons (GB-145), off by default.
+pub static WL_SYNC_GB: KvsKey<bool> = KvsKey::new_with_default("wl-sync-gb", false);
+
+/// GB-162: a GB/GBC (GBA) game asks "Play / Dual Core Link" when it is chosen. Off by default.
+pub static WL_LINK_GB: KvsKey<bool> = KvsKey::new_with_default("wl-link-gb", false);
+pub static WL_LINK_GBA: KvsKey<bool> = KvsKey::new_with_default("wl-link-gba", false);
+/// Whether to keep built-in screen on when docked.
+pub static DOCK_USE_BUILTIN_SCREEN: KvsKey<bool> = KvsKey::new_with_default("dock-screen", false);
+
+/// Whether power-off is actually deep sleep.
+pub static DEEP_SLEEP: KvsKey<bool> = KvsKey::new_with_default("deep-sleep", false);
+
 pub fn flush_all() {
+    WL_NAME.flush();
+    WL_LINK_GB.flush();
+    WL_LINK_GBA.flush();
+    WL_PEER.flush();
+    WL_FAST_GB.flush();
+    WL_SYNC_GB.flush();
     SETUP_STAGE.flush();
     UPTIME.flush();
     VOLUME.flush();
@@ -94,4 +117,6 @@ pub fn flush_all() {
     DST_RULE.flush();
     TIME_24H.flush();
     UI_THEME.flush();
+    DOCK_USE_BUILTIN_SCREEN.flush();
+    DEEP_SLEEP.flush();
 }

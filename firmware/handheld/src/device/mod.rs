@@ -7,19 +7,19 @@ use drivers::lcd_backlight;
 use drivers::sdcard::Sdcard;
 use embedded_hal_bus::i2c::MutexDevice as MutexI2C;
 use esp_idf_svc::hal::gpio::{
-    self, AnyIOPin, AnyInputPin, DriveStrength, IOPin, Input, InputOutput, InputPin, Level,
-    OutputPin,
+    self, AnyIOPin, AnyInputPin, DriveStrength, Input, InputOutput, Level,
 };
 use esp_idf_svc::hal::gpio::{AnyOutputPin, Output, PinDriver};
 use esp_idf_svc::hal::ledc::{LedcDriver, LedcTimerDriver};
 use esp_idf_svc::hal::peripheral::Peripheral;
-use esp_idf_svc::hal::peripherals::Peripherals;
 use esp_idf_svc::hal::spi::{
     self, SpiDeviceDriver, SpiDriver, SpiDriverConfig, SpiSharedDeviceDriver, SpiSoftCsDeviceDriver,
 };
 use esp_idf_svc::hal::units::{FromValueType, Hertz};
 use esp_idf_svc::hal::{i2c::*, ledc};
 
+pub mod board;
+pub mod deep_sleep;
 pub mod drivers;
 mod input;
 mod interrupt;
@@ -74,6 +74,7 @@ pub struct Device<'a> {
     >,
 
     /// FPGA driver
+    #[allow(clippy::type_complexity)]
     pub fpga: drivers::fpga::Fpga<
         'a,
         PinDriver<'a, AnyInputPin, Input>,
@@ -113,195 +114,43 @@ pub struct Device<'a> {
 
     /// Dock state
     pub docked: bool,
+
+    /// Deep sleep board configuration
+    pub sleep_config: deep_sleep::SleepConfig,
 }
 
 impl Device<'_> {
-    pub fn init() -> Result<(), anyhow::Error> {
-        if let Some(_) = DEVICE.get() {
+    pub fn init(board: board::Board) -> Result<(), anyhow::Error> {
+        if DEVICE.get().is_some() {
             panic!("Device already initialized.");
         }
 
-        let peripherals = Peripherals::take()?;
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "rev1")] {
-                let pin_led = peripherals.pins.gpio3.downgrade_output();
-                let pin_irq = peripherals.pins.gpio2.downgrade_input();
-                let pin_home = peripherals.pins.gpio0.downgrade();
-                let pin_vol_up = peripherals.pins.gpio4.downgrade();
-                let pin_vol_down = peripherals.pins.gpio5.downgrade();
-                let pin_power_switch = peripherals.pins.gpio1.downgrade();
-                let pin_vbus_pgood = peripherals.pins.gpio41.downgrade();
-                let pin_batt_chg = peripherals.pins.gpio42.downgrade_input();
-                let pin_lcd_backlight = peripherals.pins.gpio6.downgrade_output();
-                let pin_lcd_reset = peripherals.pins.gpio7.downgrade_output();
-                let pin_lcd_cs = peripherals.pins.gpio15.downgrade_output();
-                let pin_lcd_dc = peripherals.pins.gpio16.downgrade_output();
-                let pin_fpga_power = peripherals.pins.gpio46.downgrade_output();
-                let pin_fpga_init_b = peripherals.pins.gpio8.downgrade();
-                let pin_fpga_done = peripherals.pins.gpio17.downgrade_input();
-                let pin_fpga_program_b = peripherals.pins.gpio18.downgrade_output();
-                let mut pin_fpga_spi_cs = peripherals.pins.gpio10.downgrade_output();
-                let pin_spi_clk = peripherals.pins.gpio12.downgrade_output();
-                let pin_spi_d0 = peripherals.pins.gpio11.downgrade();
-                let pin_spi_d1 = peripherals.pins.gpio13.downgrade();
-                let pin_spi_d2 = peripherals.pins.gpio14.downgrade();
-                let pin_spi_d3 = peripherals.pins.gpio9.downgrade();
-                let pin_i2c_scl = peripherals.pins.gpio39.downgrade();
-                let pin_i2c_sda = peripherals.pins.gpio38.downgrade();
-                let pin_sdio_clk = peripherals.pins.gpio45.downgrade_output();
-                let pin_sdio_cmd = peripherals.pins.gpio48.downgrade();
-                let pin_sdio_d0 = peripherals.pins.gpio35.downgrade();
-                let pin_sdio_d1 = peripherals.pins.gpio36.downgrade();
-                let pin_sdio_d2 = peripherals.pins.gpio21.downgrade();
-                let pin_sdio_d3 = peripherals.pins.gpio47.downgrade();
-                let pin_sd_detect = peripherals.pins.gpio37.downgrade_input();
-                let pin_dac_reset = peripherals.pins.gpio40.downgrade_output();
-                let pin_cart_switch = None;
-                let pin_cart_power = None;
-            } else if #[cfg(feature = "rev2")] {
-                let pin_led = peripherals.pins.gpio36.downgrade_output();
-                let pin_irq = peripherals.pins.gpio16.downgrade_input();
-                let pin_home = peripherals.pins.gpio0.downgrade();
-                let pin_vol_up = peripherals.pins.gpio41.downgrade();
-                let pin_vol_down = peripherals.pins.gpio40.downgrade();
-                let pin_power_switch = peripherals.pins.gpio15.downgrade();
-                let pin_vbus_pgood = peripherals.pins.gpio17.downgrade();
-                let pin_batt_chg = peripherals.pins.gpio39.downgrade_input();
-                let pin_lcd_backlight = peripherals.pins.gpio42.downgrade_output();
-                let pin_lcd_reset = peripherals.pins.gpio1.downgrade_output();
-                let pin_lcd_cs = peripherals.pins.gpio2.downgrade_output();
-                let pin_lcd_dc = peripherals.pins.gpio3.downgrade_output();
-                let pin_lcd_spi_clk = peripherals.pins.gpio4.downgrade_output();
-                let pin_lcd_spi_d0 = peripherals.pins.gpio5.downgrade_output();
-                let pin_fpga_power = peripherals.pins.gpio46.downgrade_output();
-                let pin_fpga_init_b = peripherals.pins.gpio8.downgrade();
-                let pin_fpga_done = peripherals.pins.gpio6.downgrade_input();
-                let pin_fpga_program_b = peripherals.pins.gpio7.downgrade_output();
-                let mut pin_fpga_spi_cs = peripherals.pins.gpio10.downgrade_output();
-                let pin_fpga_spi_clk = peripherals.pins.gpio12.downgrade_output();
-                let pin_fpga_spi_d0 = peripherals.pins.gpio11.downgrade();
-                let pin_fpga_spi_d1 = peripherals.pins.gpio13.downgrade();
-                let pin_fpga_spi_d2 = peripherals.pins.gpio14.downgrade();
-                let pin_fpga_spi_d3 = peripherals.pins.gpio9.downgrade();
-                let pin_i2c_scl = peripherals.pins.gpio37.downgrade();
-                let pin_i2c_sda = peripherals.pins.gpio38.downgrade();
-                let pin_sdio_clk = peripherals.pins.gpio33.downgrade_output();
-                let pin_sdio_cmd = peripherals.pins.gpio47.downgrade();
-                let pin_sdio_d0 = peripherals.pins.gpio34.downgrade();
-                let pin_sdio_d1 = peripherals.pins.gpio48.downgrade();
-                let pin_sdio_d2 = peripherals.pins.gpio21.downgrade();
-                let pin_sdio_d3 = peripherals.pins.gpio26.downgrade();
-                let pin_sd_detect = peripherals.pins.gpio35.downgrade_input();
-                let pin_dac_reset = peripherals.pins.gpio45.downgrade_output();
-                let pin_cart_switch = None;
-                let pin_cart_power = None;
-            } else if #[cfg(feature = "rev3")] {
-                let pin_led = peripherals.pins.gpio42.downgrade_output();
-                let pin_irq = peripherals.pins.gpio6.downgrade_input();
-                let pin_home = peripherals.pins.gpio0.downgrade();
-                let pin_vol_up = peripherals.pins.gpio2.downgrade();
-                let pin_vol_down = peripherals.pins.gpio1.downgrade();
-                let pin_power_switch = peripherals.pins.gpio8.downgrade();
-                let pin_vbus_pgood = peripherals.pins.gpio9.downgrade();
-                let pin_batt_chg = peripherals.pins.gpio3.downgrade_input();
-                #[allow(unused)]
-                let pin_batt_charge_enable = peripherals.pins.gpio10.downgrade_output(); // new!
-                let pin_lcd_backlight = peripherals.pins.gpio45.downgrade_output();
-                let pin_lcd_enable = peripherals.pins.gpio46.downgrade_output();
-                let pin_fpga_power = peripherals.pins.gpio13.downgrade_output();
-                let pin_fpga_init_b = peripherals.pins.gpio18.downgrade();
-                let pin_fpga_done = peripherals.pins.gpio16.downgrade_input();
-                let pin_fpga_program_b = peripherals.pins.gpio17.downgrade_output();
-                let mut pin_fpga_spi_cs = peripherals.pins.gpio21.downgrade_output();
-                let pin_fpga_spi_clk = peripherals.pins.gpio48.downgrade_output();
-                let pin_fpga_spi_d0 = peripherals.pins.gpio34.downgrade();
-                let pin_fpga_spi_d1 = peripherals.pins.gpio33.downgrade();
-                let pin_fpga_spi_d2 = peripherals.pins.gpio47.downgrade();
-                let pin_fpga_spi_d3 = peripherals.pins.gpio26.downgrade();
-                let pin_i2c_scl = peripherals.pins.gpio4.downgrade();
-                let pin_i2c_sda = peripherals.pins.gpio5.downgrade();
-                let pin_sdio_clk = peripherals.pins.gpio38.downgrade_output();
-                let pin_sdio_cmd = peripherals.pins.gpio37.downgrade();
-                let pin_sdio_d0 = peripherals.pins.gpio39.downgrade();
-                let pin_sdio_d1 = peripherals.pins.gpio40.downgrade();
-                let pin_sdio_d2 = peripherals.pins.gpio35.downgrade();
-                let pin_sdio_d3 = peripherals.pins.gpio36.downgrade();
-                let pin_sd_detect = peripherals.pins.gpio41.downgrade_input();
-                let pin_dac_reset = peripherals.pins.gpio7.downgrade_output();
-                let pin_cart_switch = Some(peripherals.pins.gpio14.downgrade_input());
-                let pin_cart_power = Some(peripherals.pins.gpio15.downgrade_output());
-            } else if #[cfg(feature = "rev4")] {
-                let pin_led = peripherals.pins.gpio42.downgrade_output();
-                let pin_irq = peripherals.pins.gpio6.downgrade_input();
-                let pin_home = peripherals.pins.gpio0.downgrade();
-                let pin_vol_up = peripherals.pins.gpio2.downgrade();
-                let pin_vol_down = peripherals.pins.gpio1.downgrade();
-                let pin_power_switch = peripherals.pins.gpio8.downgrade();
-                let pin_vbus_pgood = peripherals.pins.gpio9.downgrade();
-                let pin_batt_chg = peripherals.pins.gpio3.downgrade_input();
-                let pin_lcd_backlight = peripherals.pins.gpio45.downgrade_output();
-                let pin_lcd_reset = peripherals.pins.gpio13.downgrade_output();
-                let pin_lcd_cs = peripherals.pins.gpio12.downgrade_output();
-                let pin_lcd_spi_clk = peripherals.pins.gpio11.downgrade_output();
-                let pin_lcd_spi_d0 = peripherals.pins.gpio10.downgrade_output();
-                let pin_fpga_power = peripherals.pins.gpio46.downgrade_output();
-                let pin_fpga_init_b = peripherals.pins.gpio18.downgrade();
-                let pin_fpga_done = peripherals.pins.gpio16.downgrade_input();
-                let pin_fpga_program_b = peripherals.pins.gpio17.downgrade_output();
-                let mut pin_fpga_spi_cs = peripherals.pins.gpio21.downgrade_output();
-                let pin_fpga_spi_clk = peripherals.pins.gpio48.downgrade_output();
-                let pin_fpga_spi_d0 = peripherals.pins.gpio34.downgrade();
-                let pin_fpga_spi_d1 = peripherals.pins.gpio33.downgrade();
-                let pin_fpga_spi_d2 = peripherals.pins.gpio47.downgrade();
-                let pin_fpga_spi_d3 = peripherals.pins.gpio26.downgrade();
-                let pin_i2c_scl = peripherals.pins.gpio4.downgrade();
-                let pin_i2c_sda = peripherals.pins.gpio5.downgrade();
-                let pin_sdio_clk = peripherals.pins.gpio38.downgrade_output();
-                let pin_sdio_cmd = peripherals.pins.gpio37.downgrade();
-                let pin_sdio_d0 = peripherals.pins.gpio39.downgrade();
-                let pin_sdio_d1 = peripherals.pins.gpio40.downgrade();
-                let pin_sdio_d2 = peripherals.pins.gpio35.downgrade();
-                let pin_sdio_d3 = peripherals.pins.gpio36.downgrade();
-                let pin_sd_detect = peripherals.pins.gpio41.downgrade_input();
-                let pin_dac_reset = peripherals.pins.gpio7.downgrade_output();
-                let pin_cart_switch = Some(peripherals.pins.gpio14.downgrade_input());
-                let pin_cart_power = Some(peripherals.pins.gpio15.downgrade_output());
-            }
-        }
+        let sleep_config = board.sleep_config.clone();
+        let sd_pins = board.pins.sd_pins();
 
         // Status LED: active high
         let led = LedcDriver::new(
-            peripherals.ledc.channel0,
+            board.ledc.channel0,
             LedcTimerDriver::new(
-                peripherals.ledc.timer0,
+                board.ledc.timer0,
                 &ledc::config::TimerConfig::new()
                     .frequency(1.kHz().into())
                     .resolution(ledc::config::Resolution::Bits14),
             )?,
-            pin_led,
+            board.pins.led,
         )
         .context("status led")?;
         crate::led::LedController::start(led);
         crate::led::LedController::set_behavior(crate::led::LedBehavior::LOADING);
 
         // Mount sdcard to /sdcard
-        let sdcard = drivers::sdcard::mount_sdcard(
-            "/sdcard",
-            pin_sdio_clk,
-            pin_sdio_cmd,
-            pin_sdio_d0,
-            pin_sdio_d1,
-            pin_sdio_d2,
-            pin_sdio_d3,
-            Some(pin_sd_detect),
-        )
-        .ok();
+        let sdcard = drivers::sdcard::mount_sdcard(&sd_pins).ok();
         if sdcard.is_some() {
             crate::crash_handler::maybe_persist();
         }
 
         // TODO: see if we can avoid keeping FPGA power on all the time
-        let mut fpga_power = PinDriver::output(pin_fpga_power)?;
+        let mut fpga_power = PinDriver::output(board.pins.fpga_power)?;
         fpga_power.set_high()?;
         let fpga_power_time = Instant::now();
 
@@ -310,11 +159,16 @@ impl Device<'_> {
         let i2c_config = I2cConfig::new()
             .baudrate(400.kHz().into())
             .timeout(Duration::from_millis(10).into());
-        let i2c = I2cDriver::new(peripherals.i2c0, pin_i2c_sda, pin_i2c_scl, &i2c_config)
-            .context("I2cDriver")?;
+        let i2c = I2cDriver::new(
+            board.i2c,
+            board.pins.i2c_sda,
+            board.pins.i2c_scl,
+            &i2c_config,
+        )
+        .context("I2cDriver")?;
         let i2c = &*Box::leak(Box::new(Mutex::new(i2c)));
 
-        let pin_irq = PinDriver::input(pin_irq)?;
+        let pin_irq = PinDriver::input(board.pins.irq)?;
 
         // LCD backlight
         let lcd_backlight = {
@@ -340,14 +194,14 @@ impl Device<'_> {
                 gamma: 1.8,
             };
             let driver = LedcDriver::new(
-                peripherals.ledc.channel1,
+                board.ledc.channel1,
                 LedcTimerDriver::new(
-                    peripherals.ledc.timer1,
+                    board.ledc.timer1,
                     &ledc::config::TimerConfig::new()
                         .frequency(config.frequency)
                         .resolution(config.resolution),
                 )?,
-                pin_lcd_backlight,
+                board.pins.lcd_backlight,
             )
             .context("backlight led")?;
             let mut backlight = lcd_backlight::PwmBacklight::new(config, driver);
@@ -359,48 +213,33 @@ impl Device<'_> {
         // TODO: see if there's a good way to do this without making and leaking a Box
         // Use DMA transfers, with an auto-assigned channel, and a maximum transfer size of 32 KiB.
         let spi_driver_config = SpiDriverConfig::new().dma(spi::Dma::Auto(32 * 1024));
+        let fpga_spi_driver = &*Box::leak(Box::new(
+            SpiDriver::new_quad(
+                board.spi2,
+                board.pins.fpga_spi_clk,
+                board.pins.fpga_spi_d0,
+                board.pins.fpga_spi_d1,
+                board.pins.fpga_spi_d2,
+                board.pins.fpga_spi_d3,
+                &spi_driver_config,
+            )
+            .context("fpga spi driver")?,
+        ));
         cfg_if::cfg_if! {
             if #[cfg(feature = "rev1")] {
-                let spi_driver = &*Box::leak(Box::new(SpiDriver::new_quad(
-                    peripherals.spi2,
-                    pin_spi_clk,
-                    pin_spi_d0,
-                    pin_spi_d1,
-                    pin_spi_d2,
-                    pin_spi_d3,
-                    &spi_driver_config,
-                ).context("spi driver")?));
-                let fpga_spi_driver = spi_driver;
-                let lcd_spi_driver = spi_driver;
+                let lcd_spi_driver = fpga_spi_driver;
             } else if #[cfg(any(feature = "rev2", feature = "rev4"))] {
-                let fpga_spi_driver = &*Box::leak(Box::new(SpiDriver::new_quad(
-                    peripherals.spi2,
-                    pin_fpga_spi_clk,
-                    pin_fpga_spi_d0,
-                    pin_fpga_spi_d1,
-                    pin_fpga_spi_d2,
-                    pin_fpga_spi_d3,
-                    &spi_driver_config,
-                ).context("fpga spi driver")?));
-                let lcd_spi_driver = &*Box::leak(Box::new(SpiDriver::new(
-                    peripherals.spi3,
-                    pin_lcd_spi_clk,
-                    pin_lcd_spi_d0,
-                    Option::<AnyInputPin>::None,
-                    &spi_driver_config,
-                ).context("lcd spi driver")?));
-            } else if #[cfg(feature = "rev3")] {
-                let fpga_spi_driver = &*Box::leak(Box::new(SpiDriver::new_quad(
-                    peripherals.spi2,
-                    pin_fpga_spi_clk,
-                    pin_fpga_spi_d0,
-                    pin_fpga_spi_d1,
-                    pin_fpga_spi_d2,
-                    pin_fpga_spi_d3,
-                    &spi_driver_config,
-                ).context("fpga spi driver")?));
+                let lcd_spi_driver = &*Box::leak(Box::new(
+                    SpiDriver::new(
+                        board.spi3,
+                        board.pins.lcd_spi_clk.expect("lcd_spi_clk"),
+                        board.pins.lcd_spi_d0.expect("lcd_spi_d0"),
+                        Option::<AnyInputPin>::None,
+                        &spi_driver_config,
+                    )
+                    .context("lcd spi driver")?,
+                ));
             }
-
         }
 
         // Setup LCD
@@ -410,24 +249,24 @@ impl Device<'_> {
                 let lcd_spi_config = spi::config::Config::new().baudrate(10.MHz().into());
                 let lcd_spi = SpiSoftCsDeviceDriver::new(
                     SpiSharedDeviceDriver::new(lcd_spi_driver, &lcd_spi_config)?,
-                    pin_lcd_cs,
+                    board.pins.lcd_cs.expect("lcd_cs"),
                     gpio::Level::High,
                 )?;
-                let lcd_reset = PinDriver::output(pin_lcd_reset)?;
-                let lcd_dc = PinDriver::output(pin_lcd_dc)?;
+                let lcd_reset = PinDriver::output(board.pins.lcd_reset.expect("lcd_reset"))?;
+                let lcd_dc = PinDriver::output(board.pins.lcd_dc.expect("lcd_dc"))?;
                 let mut lcd = drivers::ili9488::ILI9488::new(lcd_reset, lcd_dc, lcd_spi);
             } else if #[cfg(feature = "has_st7262")] {
-                let lcd_enable = PinDriver::output(pin_lcd_enable)?;
+                let lcd_enable = PinDriver::output(board.pins.lcd_enable.expect("lcd_enable"))?;
                 let mut lcd = drivers::st7262::ST7262::new(lcd_enable);
             } else if #[cfg(feature = "has_ili9806e")] {
                 log::info!("Initializing LCD");
                 let lcd_spi_config = spi::config::Config::new().baudrate(5.MHz().into());
                 let lcd_spi = SpiSoftCsDeviceDriver::new(
                     SpiSharedDeviceDriver::new(lcd_spi_driver, &lcd_spi_config)?,
-                    pin_lcd_cs,
+                    board.pins.lcd_cs.expect("lcd_cs"),
                     gpio::Level::High,
                 )?;
-                let lcd_reset = PinDriver::output(pin_lcd_reset)?;
+                let lcd_reset = PinDriver::output(board.pins.lcd_reset.expect("lcd_reset"))?;
                 let mut lcd = drivers::ili9806e::ILI9806E::new(lcd_reset, lcd_spi);
             }
         }
@@ -442,25 +281,29 @@ impl Device<'_> {
         }
 
         // Direct buttons
-        let mut button_home = PinDriver::input(pin_home)?;
-        let mut button_vol_up = PinDriver::input(pin_vol_up)?;
-        let mut button_vol_down = PinDriver::input(pin_vol_down)?;
-        let mut button_power = PinDriver::input_output_od(pin_power_switch)?;
+        let mut button_home = PinDriver::input(board.pins.home)?;
+        let mut button_vol_up = PinDriver::input(board.pins.vol_up)?;
+        let mut button_vol_down = PinDriver::input(board.pins.vol_down)?;
+        let mut button_power = PinDriver::input_output_od(board.pins.power_switch)?;
         button_home.set_pull(gpio::Pull::Up)?;
         button_vol_up.set_pull(gpio::Pull::Up)?;
         button_vol_down.set_pull(gpio::Pull::Up)?;
         button_power.set_high()?;
 
         // Cartridge switch and power
-        let pin_cart_switch = pin_cart_switch
+        let pin_cart_switch = board
+            .pins
+            .cart_switch
             .map(|p: AnyInputPin| PinDriver::input(p))
             .transpose()?;
-        let pin_cart_power = pin_cart_power
+        let pin_cart_power = board
+            .pins
+            .cart_power
             .map(|p: AnyOutputPin| PinDriver::output(p))
             .transpose()?;
 
         // Setup RTC
-        let rtc = drivers::rtc::PCF8563::new(MutexI2C::new(&i2c));
+        let rtc = drivers::rtc::PCF8563::new(MutexI2C::new(i2c));
 
         // Setup battery fuel gauge
         cfg_if::cfg_if! {
@@ -468,13 +311,13 @@ impl Device<'_> {
                 let mut fuel_gauge = drivers::max17048::MAX17048::new(MutexI2C::new(&i2c));
                 let _ = fuel_gauge.set_alert_soc_change(true); // fuel gauge won't work without a battery
             } else if #[cfg(feature = "has_bq27427")] {
-                let fuel_gauge = drivers::bq27427::BQ27427::new(MutexI2C::new(&i2c));
+                let fuel_gauge = drivers::bq27427::BQ27427::new(MutexI2C::new(i2c));
 
                 // Fuel gauge requires configuration, which could block for multiple seconds. Run it in another thread,
                 // with a new instance of the driver. Scary, but fine, because the driver has no state
                 // and the I2C bus is protected by a mutex.
                 // This would be easier if everything were async, most of the blocking is just waiting to poll...
-                let i2c_2 = MutexI2C::new(&i2c);
+                let i2c_2 = MutexI2C::new(i2c);
                 std::thread::Builder::new()
                     .name("battery_setup".to_string())
                     .stack_size(2 * 1024)
@@ -491,12 +334,12 @@ impl Device<'_> {
         }
 
         // Battery charger
-        let mut pin_vbus_pgood = PinDriver::input(pin_vbus_pgood)?;
+        let mut pin_vbus_pgood = PinDriver::input(board.pins.vbus_pgood)?;
         pin_vbus_pgood.set_pull(gpio::Pull::Up)?;
-        let pin_batt_chg = PinDriver::input(pin_batt_chg)?;
+        let pin_batt_chg = PinDriver::input(board.pins.batt_chg)?;
 
         // Setup IMU
-        let mut imu = drivers::imu::LSM6DS3TRC::new(MutexI2C::new(&i2c));
+        let mut imu = drivers::imu::LSM6DS3TRC::new(MutexI2C::new(i2c));
         imu.init().context("IMU init")?;
 
         // Ensure fpga power has stabilized.
@@ -505,8 +348,8 @@ impl Device<'_> {
 
         // Setup DAC (requires fpga_power on)
         log::info!("Initializing DAC");
-        let dac_reset = PinDriver::output(pin_dac_reset)?;
-        let mut dac = drivers::dac::TLV320DAC3101::new(dac_reset, MutexI2C::new(&i2c));
+        let dac_reset = PinDriver::output(board.pins.dac_reset)?;
+        let mut dac = drivers::dac::TLV320DAC3101::new(dac_reset, MutexI2C::new(i2c));
         dac.init().context("DAC init")?;
         dac.configure_interrupts().context("DAC interrupts")?;
         dac.set_power_down(0, true).context("DAC power down")?;
@@ -520,12 +363,13 @@ impl Device<'_> {
         dac.set_speakers_enabled(!headphones_detected)?;
 
         // Setup FPGA (without programming)
-        let fpga_done = PinDriver::input(pin_fpga_done)?;
-        let mut fpga_program_b = PinDriver::output_od(pin_fpga_program_b)?;
+        let fpga_done = PinDriver::input(board.pins.fpga_done)?;
+        let mut fpga_program_b = PinDriver::output_od(board.pins.fpga_program_b)?;
         fpga_program_b.set_high()?; // Initializing pin sets this to low -- release it to high-z immediately.
-        let fpga_init_b = PinDriver::input(pin_fpga_init_b)?;
+        let fpga_init_b = PinDriver::input(board.pins.fpga_init_b)?;
 
         let spi_rates = [40.MHz(), 20.MHz(), 10.MHz(), 4.MHz(), 2.MHz()];
+        let mut pin_fpga_spi_cs = board.pins.fpga_spi_cs;
         let fpga_data_spis = spi_rates
             .iter()
             .map(|&rate| {
@@ -537,6 +381,15 @@ impl Device<'_> {
                 // and never used at the same time (either read *or* write are used at any time).
                 // There doesn't appear to be any other way to use multiple clock speeds.
                 let cs_pin = unsafe { pin_fpga_spi_cs.clone_unchecked() };
+                #[cfg(feature = "fast-link-spi")]
+                let cs = gpio::Pin::pin(&cs_pin);
+                #[cfg(feature = "fast-link-spi")]
+                let spi = drivers::fpga::SpiDataDriver::new(
+                    SpiSharedDeviceDriver::new(fpga_spi_driver, &config).unwrap(),
+                    cs_pin,
+                    cs,
+                ).unwrap();
+                #[cfg(not(feature = "fast-link-spi"))]
                 let spi = SpiSoftCsDeviceDriver::new(
                     SpiSharedDeviceDriver::new(fpga_spi_driver, &config).unwrap(),
                     cs_pin,
@@ -587,6 +440,7 @@ impl Device<'_> {
             imu,
             sdcard,
             docked: false,
+            sleep_config,
         };
         device.init_datetime();
         DEVICE
@@ -605,6 +459,11 @@ impl Device<'_> {
 
     pub fn lock() -> MutexGuard<'static, Device<'static>> {
         Device::get().lock().unwrap()
+    }
+
+    /// Called early after power-on to check that we should continue powering on.
+    pub fn confirm_power_on(board: &board::Board) {
+        deep_sleep::confirm_power_on(board);
     }
 
     /// Enable or disable FPGA power.
@@ -626,35 +485,40 @@ impl Device<'_> {
     pub fn power_off(&mut self) -> ! {
         log::info!("Powering off");
 
-        let _ = self.change_display_mode(DisplayMode::None);
+        self.prepare_for_power_off();
 
-        // Update uptime
-        let this_uptime =
-            Duration::from_micros(unsafe { esp_idf_svc::sys::esp_timer_get_time() as _ });
-        let new_uptime = kvs::keys::UPTIME.get().unwrap() + (this_uptime.as_secs() as u32);
-        kvs::keys::UPTIME.set(&new_uptime);
-        kvs::keys::flush_all();
+        if kvs::keys::DEEP_SLEEP.get().unwrap_or(false) {
+            // Prepare for extended deep sleep.
+            deep_sleep::enter(&self.sleep_config);
+        } else {
+            // Hold power button to power-off.
 
-        // Leave FPGA powered, but put it in program-reset mode.
-        // A steady load (FPGA quiescent current) helps to drain capacitors.
-        let _ = self.fpga.pin_program_b.set_low();
+            // Leave FPGA powered, but put it in program-reset mode.
+            // A steady load (FPGA quiescent current) helps to drain capacitors.
+            let _ = self.set_fpga_power(true);
+            let _ = self.fpga.pin_program_b.set_low();
 
-        // Hold down the power button until the device shuts off.
-        let _ = self.fpga_power.set_drive_strength(DriveStrength::I40mA);
-        let _ = self.button_power.set_drive_strength(DriveStrength::I40mA);
-        let _ = self.button_power.set_low();
+            // Hold down the power button until the device shuts off.
+            let _ = self.fpga_power.set_drive_strength(DriveStrength::I40mA);
+            let _ = self.button_power.set_drive_strength(DriveStrength::I40mA);
+            let _ = self.button_power.set_low();
+
+            unsafe {
+                // Enable pin hold during deep sleep.
+                esp_idf_svc::sys::gpio_hold_en(self.fpga_power.pin());
+                esp_idf_svc::sys::gpio_hold_en(self.fpga.pin_program_b.pin());
+                esp_idf_svc::sys::gpio_hold_en(self.button_power.pin());
+                esp_idf_svc::sys::gpio_deep_sleep_hold_en();
+
+                // Stay in deep sleep to maximize chances of holding power button down past brown-out.
+                esp_idf_svc::sys::esp_sleep_disable_wakeup_source(
+                    esp_idf_svc::sys::esp_sleep_source_t_ESP_SLEEP_WAKEUP_ALL,
+                );
+            }
+        }
 
         unsafe {
-            // Enable pin hold during deep sleep.
-            esp_idf_svc::sys::gpio_hold_en(self.fpga_power.pin());
-            esp_idf_svc::sys::gpio_hold_en(self.fpga.pin_program_b.pin());
-            esp_idf_svc::sys::gpio_hold_en(self.button_power.pin());
-            esp_idf_svc::sys::gpio_deep_sleep_hold_en();
-
-            // Enter deep sleep to maximize chances of holding power button down past brown-out.
-            esp_idf_svc::sys::esp_sleep_disable_wakeup_source(
-                esp_idf_svc::sys::esp_sleep_source_t_ESP_SLEEP_WAKEUP_ALL,
-            );
+            // Enter deep sleep.
             esp_idf_svc::sys::esp_deep_sleep_start();
         }
     }
@@ -678,11 +542,27 @@ impl Device<'_> {
     ///
     /// The device must go through a [soft] reset to function correctly after this.
     fn prepare_for_power_off(&mut self) {
+        // Unmount SD card if mounted to flush writes and deinit
+        if let Some(sdcard) = self.sdcard.take() {
+            let _ = sdcard.unmount();
+        }
+
         let _ = self.change_display_mode(DisplayMode::None);
-        // Hold DAC in reset, otherwise it interferes with I2C if rebooting.
-        let _ = self.dac.reset_hold();
-        // TODO: high-Z SPI, other FPGA-power-domain pins.
+
+        // Turn off status LED
+        crate::led::LedController::set_behavior(crate::led::LedBehavior::OFF);
+
+        // Power down DAC and hold in reset
+        self.dac.deinitialize();
+
+        // Power down IMU
+        let _ = self.imu.disable_accel();
+        let _ = self.imu.disable_gyro();
+
+        self.set_lcd_enabled(false);
+
         let _ = self.set_fpga_power(false);
+        self.set_cart_power(false);
 
         // Update uptime
         let this_uptime =
@@ -697,9 +577,9 @@ impl Device<'_> {
     pub fn set_lcd_enabled(&mut self, enabled: bool) {
         self.lcd_backlight.set_enabled(enabled);
         if enabled {
-            self.lcd.exit_sleep().unwrap();
+            let _ = self.lcd.exit_sleep();
         } else {
-            self.lcd.enter_sleep().unwrap();
+            let _ = self.lcd.enter_sleep();
         }
     }
 
@@ -752,10 +632,40 @@ impl Device<'_> {
         self.rtc.write_datetime(dt).unwrap();
     }
 
+    /// Update the physical dock state and refresh display mode.
+    pub fn set_docked(&mut self, docked: bool) -> Result<(), anyhow::Error> {
+        self.docked = docked;
+        self.refresh_display_mode()
+    }
+
+    /// Refresh display mode based on dock state and settings.
+    pub fn refresh_display_mode(&mut self) -> Result<(), anyhow::Error> {
+        let target_mode = if self.docked
+            && !crate::kvs::keys::DOCK_USE_BUILTIN_SCREEN
+                .get()
+                .unwrap_or(false)
+        {
+            DisplayMode::External
+        } else {
+            DisplayMode::Internal
+        };
+        self.change_display_mode(target_mode)
+    }
+
+    /// Apply the current dock state and display mode to the FPGA dock register.
+    pub fn apply_dock_state(&mut self) -> Result<(), anyhow::Error> {
+        let use_builtin = self.docked && self.display_mode == DisplayMode::Internal;
+        self.fpga
+            .set_dock_state(self.docked, use_builtin)
+            .context("set FPGA dock state")?;
+        Ok(())
+    }
+
     /// Update the display mode (internal vs external).
     pub fn change_display_mode(&mut self, new_mode: DisplayMode) -> Result<(), anyhow::Error> {
         let old_mode = self.display_mode;
         if old_mode == new_mode {
+            self.apply_dock_state()?;
             return Ok(());
         }
         log::info!("Display mode: {:?}", new_mode);
@@ -766,9 +676,8 @@ impl Device<'_> {
             self.lcd.enter_sleep()?;
         }
 
-        self.fpga
-            .set_display_mode(new_mode)
-            .context("set FPGA display mode")?;
+        self.display_mode = new_mode;
+        self.apply_dock_state()?;
 
         if new_mode == DisplayMode::Internal {
             self.lcd.exit_sleep().context("LCD exit sleep")?;
@@ -779,7 +688,6 @@ impl Device<'_> {
             self.dac.set_power_down(1, false)?;
         }
 
-        self.display_mode = new_mode;
         Ok(())
     }
 

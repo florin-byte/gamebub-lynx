@@ -33,7 +33,9 @@ class Timer extends Module {
   val regControl = RegInit(0.U.asTypeOf(new RegisterControl))
   io.divApu := Mux(io.clocker.doubleSpeed, regDivider(6 + 5), regDivider(6 + 4))
   io.divSerial := regDivider(5)
-  io.divSerialFast := regDivider(10)
+  // regDivider counts M-cycles (1,048,576 Hz; DIV is bits 13..6): bit 0 falls at 524,288 Hz.
+  // Bit 10 (512 Hz) made a fast transfer last 31 ms instead of 30 us (GB-150).
+  io.divSerialFast := regDivider(0)
   io.divOverflow := io.clocker.phiPulse && (regDivider + 1.U === 0.U)
 
   // Timer logic

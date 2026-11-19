@@ -30,7 +30,7 @@ object SimGba extends App {
   )
 }
 
-class SimGba extends Module {
+class SimGba(linkEmulatedTime: Boolean = false) extends Module {
   val io = IO(new Bundle {
     val enable = Input(Bool())
     val ppu = Output(new PpuOutput)
@@ -45,7 +45,11 @@ class SimGba extends Module {
     val emuCartStall = Output(Bool())
   })
 
-  val gba = Module(new GBA())
+  val gba = Module(new GBA(linkEmulatedTime))
+  gba.io.wireless.enabled := false.B
+  gba.io.wireless.clear := false.B
+  gba.io.wireless.command.valid := false.B
+  gba.io.wireless.command.bits := 0.U.asTypeOf(gba.io.wireless.command.bits)
   gba.io.enable <> io.enable
   gba.io.configGBPlayer := io.configGBPlayer
   gba.io.ppu <> io.ppu

@@ -10,7 +10,7 @@ export component CoreError {
 
     i-focus-scope := FocusScope {
         key-pressed(event) => {
-            if (event.text == "a") {
+            if (event.text == "a" || event.text == "b") {
                 on-confirm();
                 accept
             } else {
@@ -32,6 +32,7 @@ export component CoreError {
                 color: Theme.fg;
                 text: error;
                 horizontal-alignment: center;
+                wrap: word-wrap;
             }
 
             HorizontalLayout {

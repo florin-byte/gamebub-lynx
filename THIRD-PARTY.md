@@ -45,7 +45,7 @@ Florin's changes to Eli Lipsitz's files (for example `HandheldTop.scala`, the fi
 
 ## Not included
 
-No Atari Lynx boot ROM (`system/lynxboot.img`, Atari's code: dump it from your own Lynx) and no games.
+No Atari Lynx boot ROM (`cores/Retro-Bub.Lynx/lynxboot.img`, Atari's code: dump it from your own Lynx) and no games.
 
 "Game Bub" is Eli Lipsitz's project and trademark; this core is unofficial and uses neither the name nor the logo as
 its own. "Atari" and "Lynx" are trademarks of their owners.

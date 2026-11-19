@@ -25,6 +25,7 @@ static mut REPORT: MaybeUninit<CrashReport> = MaybeUninit::uninit();
 
 unsafe extern "C" {
     unsafe fn __real_esp_panic_handler(info: *mut core::ffi::c_void);
+    fn gamebub_crash_reason(info: *const core::ffi::c_void) -> *const core::ffi::c_char;
 }
 
 #[no_mangle]
@@ -32,6 +33,20 @@ pub unsafe extern "C" fn __wrap_esp_panic_handler(info: *mut core::ffi::c_void) 
     let report = REPORT.assume_init_mut();
     report.magic = MAGIC_NUMBER;
     report.crash = true;
+
+    // Reserve room for the reason and task even after a long Rust panic message.
+    while report.message.len() > 192 {
+        report.message.pop();
+    }
+    // Fixed-capacity RTC storage: no heap allocation or logger in the panic path.
+    let _ = report.message.try_push_str("CRASH: ");
+    append_c_string(&mut report.message, gamebub_crash_reason(info));
+    let _ = report.message.try_push_str("; current task: ");
+    append_c_string(
+        &mut report.message,
+        esp_idf_svc::sys::pcTaskGetName(core::ptr::null_mut()),
+    );
+    let _ = report.message.try_push_str("\n");
 
     let mut pc: u32 = 0;
     let mut sp: u32 = 0;
@@ -58,6 +73,24 @@ pub unsafe extern "C" fn __wrap_esp_panic_handler(info: *mut core::ffi::c_void) 
     }
 
     __real_esp_panic_handler(info);
+}
+
+// Bound reads and writes even when the panic message exceeds the RTC buffer.
+unsafe fn append_c_string(message: &mut ArrayString<512>, value: *const core::ffi::c_char) {
+    if value.is_null() {
+        let _ = message.try_push_str("(unknown)");
+        return;
+    }
+    for i in 0..256 {
+        let byte = *value.add(i) as u8;
+        if byte == 0 {
+            break;
+        }
+        let ch = if byte.is_ascii() { byte as char } else { '?' };
+        if message.try_push(ch).is_err() {
+            break;
+        }
+    }
 }
 
 fn get_location<'a>(info: &'a PanicHookInfo<'_>) -> &'a dyn Display {
@@ -115,7 +148,7 @@ fn write_crash(crash: &CrashReport) -> std::io::Result<()> {
 pub fn maybe_persist() {
     let crash = unsafe { REPORT.assume_init_mut() };
     if crash.magic == MAGIC_NUMBER {
-        match write_crash(&crash) {
+        match write_crash(crash) {
             Ok(()) => log::info!("Wrote crash log to sdcard"),
             Err(e) => log::warn!("Failed to write crash: {e}"),
         }

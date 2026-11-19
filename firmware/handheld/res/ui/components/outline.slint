@@ -1,0 +1,115 @@
+// Light text, icons and frames with a 1 px black outline, for the in-game menu that is drawn over
+// the game (GB-173). Slint 1.12's software renderer ignores Text.stroke. For text the outline is
+// one black copy in the outline font (each glyph grown by one pixel, res/fonts/): eight shifted
+// copies give the same pixels but ran the console out of memory over GBA games, since every
+// glyph of a frame is kept in one list. Icons still use eight shifted copies (two small arrows).
+
+export global OutlineFont {
+    out property <string> family: "Retro Bub Menu Outline 12px";
+}
+
+export global OutlineOffsets {
+    out property <[{x: length, y: length}]> all: [
+        { x: -1px, y: -1px }, { x: 0px, y: -1px }, { x: 1px, y: -1px },
+        { x: -1px, y: 0px }, { x: 1px, y: 0px },
+        { x: -1px, y: 1px }, { x: 0px, y: 1px }, { x: 1px, y: 1px },
+    ];
+}
+
+// Sizes come from an invisible Text that is never given a size (see ScrollingText).
+export component OutlinedText inherits Rectangle {
+    in property <string> text;
+    in property <brush> text-color: white;
+    in property <brush> outline-color: black;
+    in property <TextHorizontalAlignment> horizontal-alignment: TextHorizontalAlignment.left;
+    in property <TextVerticalAlignment> vertical-alignment: TextVerticalAlignment.center;
+    // Elide when it does not fit (the outline then ends with the text: the same cut).
+    in property <bool> elide: false;
+
+    preferred-width: i-measure.preferred-width;
+    preferred-height: i-measure.preferred-height;
+    min-height: i-measure.min-height;
+
+    i-measure := Text {
+        text: root.text;
+        visible: false;
+    }
+
+    // The outline font's glyphs are one pixel right of the normal ones: placed one pixel left.
+    Text {
+        x: -1px;
+        y: 0px;
+        width: root.elide && i-measure.preferred-width > root.width ? root.width : root.width + 2px;
+        height: root.height;
+        text: root.text;
+        font-family: OutlineFont.family;
+        color: root.outline-color;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.elide ? TextOverflow.elide : TextOverflow.clip;
+    }
+
+    Text {
+        x: 0px;
+        y: 0px;
+        width: root.width;
+        height: root.height;
+        text: root.text;
+        color: root.text-color;
+        horizontal-alignment: root.horizontal-alignment;
+        vertical-alignment: root.vertical-alignment;
+        overflow: root.elide ? TextOverflow.elide : TextOverflow.clip;
+    }
+}
+
+export component OutlinedImage inherits Rectangle {
+    in property <image> source;
+    in property <brush> tint: white;
+    in property <brush> outline-color: black;
+
+    preferred-width: i-main.preferred-width;
+    preferred-height: i-main.preferred-height;
+
+    for d in OutlineOffsets.all: Image {
+        x: i-main.x + d.x;
+        y: i-main.y + d.y;
+        width: i-main.width;
+        height: i-main.height;
+        source: root.source;
+        colorize: root.outline-color;
+    }
+
+    i-main := Image {
+        source: root.source;
+        colorize: root.tint;
+    }
+}
+
+// A 1 px light frame with a black line on each side of it.
+export component OutlinedFrame inherits Rectangle {
+    in property <brush> line-color: white;
+    in property <brush> outline-color: black;
+
+    Rectangle {
+        x: -1px;
+        y: -1px;
+        width: root.width + 2px;
+        height: root.height + 2px;
+        border-width: 1px;
+        border-color: root.outline-color;
+    }
+
+    Rectangle {
+        border-width: 1px;
+        border-color: root.line-color;
+    }
+
+    Rectangle {
+        x: 1px;
+        y: 1px;
+        width: root.width - 2px;
+        height: root.height - 2px;
+        border-width: 1px;
+        border-color: root.outline-color;
+    }
+}

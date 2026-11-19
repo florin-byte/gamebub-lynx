@@ -7,6 +7,18 @@ import mill.scalalib._
 object root extends build.framework.FrameworkModule, SbtModule {
   override def moduleDeps = Seq()
 
+  // GB-142: simulation-only wrapper for the link cable prototype.
+  def cableSources = Task.Sources(
+    moduleDir / "sim" / "cable" / "SimCableGameboy.scala",
+    moduleDir / "sim" / "cable" / "SimDualGameboy.scala",
+    moduleDir / "sim" / "cable" / "SimCableGba.scala",
+    moduleDir / "sim" / "cable" / "SimDualGba.scala",
+  )
+
+  override def sources = Task {
+    super.sources() ++ cableSources()
+  }
+
   override def mvnDeps = super.mvnDeps() ++ Seq(
     mvn"com.github.tototoshi::scala-csv::1.3.10",
     mvn"com.lihaoyi::upickle::3.1.0",

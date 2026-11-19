@@ -109,7 +109,7 @@ class HandheldLynx extends Module with Core {
     val videoScaler = scalerInterface
     val audio = new AudioV0()
     val host = new HostV0()
-    val input = new InputV0()
+    val input = new InputBasicV0()
     val sdram = new SdramV0()
   })
 
@@ -182,7 +182,7 @@ class LynxCore extends Module {
     val video = videoInterface
     val videoScaler = scalerInterface
     val audio = new AudioV0()
-    val buttons = Input(new InputV0.Buttons)
+    val buttons = Input(new InputBasicV0.Buttons)
     val sdram = Flipped(new PipelineMemoryInterface(addressWidth = 25, dataWidth = 32))
   })
 

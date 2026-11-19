@@ -40,6 +40,12 @@ object HandheldGameboy {
   val SaveStateSdramBase = 0x0080_0000
 
   val mmcmVcoHz = 50_000_000.toDouble / 3 * 56.375
+
+  /** GB-143 synthesis trial: build with GB_DUAL_CORE=1 to add a second, hidden
+    * core joined to the first by a local link cable. Off by default; without it
+    * the generated design is unchanged.
+    */
+  val DualCoreTrial: Boolean = sys.env.get("GB_DUAL_CORE").contains("1")
 }
 
 class HandheldGameboy extends Module with Core {
@@ -68,7 +74,7 @@ class HandheldGameboy extends Module with Core {
     val audio = new AudioV0()
     val host = new HostV0()
     val pmod = new PmodV0()
-    val input = new InputV0()
+    val input = new InputBasicV0()
     val vibrate = new VibrateV0()
     val cartridge = new CartridgePortV0()
     val link = new LinkPortV0()
@@ -115,6 +121,20 @@ class HandheldGameboy extends Module with Core {
   val configRegDmgOffColor = RegInit(0.U(16.W))
   val statRegStalls = RegInit(0.U(32.W))
   val statRegCycles = RegInit(0.U(32.W))
+  // GB-145 second core: its cartridge RAM base and the frame-locked button exchange.
+  // CONTROL: enable[0], run[1], delay[6:4], local core is player 2[7], ROM word cache[8], ROM prefetch[9]. With enable low the build behaves as one core.
+  private val dual = HandheldGameboy.DualCoreTrial
+  val dualRegRamAddress = Option.when(dual)(RegInit(0.U(19.W)))
+  val dualRegControl = Option.when(dual)(RegInit(0.U(10.W)))
+  val dualProbe = Option.when(dual)(RegInit(VecInit(Seq.fill(12)(0.U(32.W)))))
+  val dualRegPhase = Option.when(dual)(RegInit(0.U(18.W)))
+  val dualSync = Option.when(dual) {
+    val sync = Module(new DualCoreSync)
+    sync.io.partnerWrite := false.B
+    sync.io.partnerData := DontCare
+    sync.io.pop := false.B
+    sync
+  }
 
   val emuCartRtcAccess = Wire(new Mbc3RtcAccess)
   emuCartRtcAccess.writeEnable := false.B
@@ -137,12 +157,12 @@ class HandheldGameboy extends Module with Core {
     )
   }
 
-  val sramArbiter = Module(new MemoryArbiter(addressWidth = 18, dataWidth = 16, n = 2))
+  val sramArbiter = Module(new MemoryArbiter(addressWidth = 18, dataWidth = 16, n = if (dual) 3 else 2))
   val sramHost = sramArbiter.io.initiator(0)
   val sramEmuCart = sramArbiter.io.initiator(1)
 
   // SDRAM: host, emulated cartridge, save-state walker
-  val sdramArbiter = Module(new PipelineMemoryArbiter(addressWidth = 25, dataWidth = 32, n = 3))
+  val sdramArbiter = Module(new PipelineMemoryArbiter(addressWidth = 25, dataWidth = 32, n = if (dual) 4 else 3))
   val sdramHost = Wire(new MemoryInterface(addressWidth = 25, dataWidth = 32))
   val sdramEmuCart = sdramArbiter.io.initiator(1)
 
@@ -172,8 +192,13 @@ class HandheldGameboy extends Module with Core {
   io.host.mem.unsafe :<>= memoryMap.unsafe
   memoryMap.writeStrobe := "b1111".U
 
+  val linkBridge = Module(new LinkHostBridge)
+
+  val regularRegisters = Wire(new MemoryInterface(16, 32))
+  LinkRegisterRouter.connect(registerInterface, regularRegisters, linkBridge.io.mem)
+
   suppressEnumCastWarning {
-    registerInterface <> RegisterMap(
+    regularRegisters <> RegisterMap(
       addressWidth = 16,
       dataWidth = 32,
       entries = Seq(
@@ -193,7 +218,35 @@ class HandheldGameboy extends Module with Core {
         0x1004 -> RegisterMap.Entry.rw(statRegCycles),
 
         0x2000 -> RegisterMap.Entry.w(regCoreResetOnce),
-      )
+      ) ++ (if (dual) {
+        // 0x40..0x58 belong to the link bridge (LinkRegisterRouter).
+        val sync = dualSync.get.io
+        // SpiReceiverFifo holds a write for two cycles: act on the first (as LinkHostBridge).
+        val writeCompletion = RegInit(false.B)
+        writeCompletion := regularRegisters.enable && regularRegisters.write && !writeCompletion
+        def strobe(fn: UInt => Unit): RegisterMap.Entry =
+          RegisterMap.Entry(32, RegisterMap.ReadFn(), RegisterMap.WriteFn((en, data) =>
+            when (en && !writeCompletion) { fn(data) }))
+        Seq(
+          0x00A0 -> RegisterMap.Entry.r(DualCoreSync.Caps.U(32.W)),
+          0x00A4 -> RegisterMap.Entry.rw(dualRegControl.get),
+          0x00A8 -> RegisterMap.Entry.rw(dualRegRamAddress.get),
+          0x00AC -> strobe(data => { sync.partnerWrite := true.B; sync.partnerData := data(23, 0) }),
+          0x00B0 -> RegisterMap.Entry.r(sync.local),
+          0x00B4 -> RegisterMap.Entry.r(sync.digestVisible),
+          0x00B8 -> RegisterMap.Entry.r(sync.digestHidden),
+          0x00BC -> strobe(data => { sync.pop := data(0) }),
+          0x00C0 -> RegisterMap.Entry.r(sync.status),
+          0x00C4 -> RegisterMap.Entry.r(sync.waitCycles),
+          0x00C8 -> RegisterMap.Entry.rw(dualRegPhase.get),
+          0x00CC -> RegisterMap.Entry.r(sync.serialStatVisible),
+          0x00D0 -> RegisterMap.Entry.r(sync.serialStatHidden),
+          0x00D4 -> RegisterMap.Entry.r(sync.serialStatCross),
+          0x00D8 -> RegisterMap.Entry.r(sync.writeStat),
+          0x00DC -> RegisterMap.Entry.r(sync.rejectStat),
+          0x00E0 -> RegisterMap.Entry.r(sync.lastReject),
+        ) ++ (0 until 12).map(i => (0x00E4 + 4 * i) -> RegisterMap.Entry.r(dualProbe.get(i)))
+      } else Nil)
     )
   }
 
@@ -268,7 +321,7 @@ class HandheldGameboy extends Module with Core {
     commandHostState := CommandState.idle
   }
   // Core -> Host commands
-  io.host.commandCore.request := false.B
+  io.host.commandCore.request := linkBridge.io.coreRequest
 
   // Save-state command sequencing (declarations above)
   switch (ssCommand) {
@@ -313,7 +366,12 @@ class HandheldGameboy extends Module with Core {
     skipBootrom = false,
     optimizeForSimulation = false,
   )
-  val gameboy = Module(new Gameboy(gameboyConfig))
+  val gameboy = Module(new Gameboy(gameboyConfig.copy(
+    wirelessGuardCycles = 4 * io.clocks.clockSystemHz,
+  )))
+  gameboy.io.wireless <> linkBridge.io.link
+  // Use a pulse: a held reset must not advance the session every clock.
+  linkBridge.io.channelReset := regCoreResetCombined && !RegNext(regCoreResetCombined, false.B)
   gameboy.reset := regCoreResetCombined
   gameboy.io.isCgb := configRegSystem.isCgb
 
@@ -616,7 +674,7 @@ class HandheldGameboy extends Module with Core {
   // Boot ROM
   // The DMG one is 256 bytes, and starts at 0
   // The CGB one is 2304 bytes (2048 with 256 bytes padding), starts at 256
-  val bios = SRAM(2048 + 256 + 256, UInt(8.W), numReadPorts = 1, numWritePorts = 1, numReadwritePorts = 0)
+  val bios = SRAM(2048 + 256 + 256, UInt(8.W), numReadPorts = if (dual) 2 else 1, numWritePorts = 1, numReadwritePorts = 0)
   bios.writePorts(0).enable := biosInterface.enable && biosInterface.write
   bios.writePorts(0).address := biosInterface.address
   bios.writePorts(0).data := biosInterface.dataWrite
@@ -629,6 +687,220 @@ class HandheldGameboy extends Module with Core {
     bios.readPorts(0).address := gameboy.io.bootRom.address
   }
   gameboy.io.bootRom.data := bios.readPorts(0).data
+
+  // GB-145: the partner's core, hidden (no video, no audio). Local link cable
+  // to the first core, one shared clock enable, the same ROM in SDRAM, its own
+  // cartridge RAM in SRAM. DualCoreSync applies both cores' buttons on frame
+  // boundaries and stops both cores while the partner's buttons are missing.
+  // With CONTROL.enable low the hidden core stays in reset and nothing changes.
+  if (dual) {
+    val sync = dualSync.get
+    val syncEnable = dualRegControl.get(0)
+    val gameboy2 = Module(new Gameboy(gameboyConfig.copy(
+      wirelessGuardCycles = 4 * io.clocks.clockSystemHz,
+    )))
+    gameboy2.reset := regCoreResetCombined || !syncEnable
+    gameboy2.io.isCgb := configRegSystem.isCgb
+    // One enable for both cores, except the start phase, when the late core stays stopped.
+    val coreTick = (regCoreFocus || ssWalker.io.coreClockEnable) && !doStall
+    gameboy.io.clockConfig.enable := coreTick && !sync.io.holdVisible
+    gameboy2.io.clockConfig.enable := coreTick && !sync.io.holdHidden
+    gameboy2.io.clockConfig.provide8Mhz := true.B
+    gameboy2.io.wireless.config := 0.U
+    gameboy2.io.wireless.clear := false.B
+    gameboy2.io.wireless.command.valid := false.B
+    gameboy2.io.wireless.command.bits := 0.U
+    gameboy2.io.joypad := sync.io.hiddenButtons.asTypeOf(gameboy2.io.joypad)
+    when (syncEnable) {
+      gameboy.io.joypad := sync.io.visibleButtons.asTypeOf(gameboy.io.joypad)
+    }
+    sync.io.enable := syncEnable
+    sync.io.run := dualRegControl.get(1)
+    sync.io.delay := dualRegControl.get(6, 4)
+    sync.io.tick := coreTick
+    sync.io.phase := dualRegPhase.get
+    sync.io.visibleLate := dualRegControl.get(7)
+    sync.io.serialVisible := Cat(gameboy.io.serialDebug.regEnable, gameboy.io.serialDebug.regClockMode)
+    sync.io.serialHidden := Cat(gameboy2.io.serialDebug.regEnable, gameboy2.io.serialDebug.regClockMode)
+    // Same bit order as JoypadState.
+    sync.io.localButtons := Cat(
+      io.input.buttons.start, io.input.buttons.select, io.input.buttons.b, io.input.buttons.a,
+      io.input.buttons.down, io.input.buttons.up, io.input.buttons.left, io.input.buttons.right)
+    sync.io.sampleVisible := DualCoreSync.traceSample(gameboy)
+    sync.io.sampleHidden := DualCoreSync.traceSample(gameboy2)
+    when (sync.io.request) {
+      io.host.commandCore.request := true.B
+    }
+    // No save-state walker on the hidden core in this trial.
+    gameboy2.io.saveState.elements.values.foreach { field =>
+      if (chisel3.reflect.DataMirror.directionOf(field) == ActualDirection.Input) {
+        field := 0.U.asTypeOf(field)
+      }
+    }
+
+    // Local link cable (overrides the external link port wiring above).
+    when (syncEnable) {
+      gameboy.io.serial.in := gameboy2.io.serial.out
+      gameboy.io.serial.clockIn := !gameboy2.io.serial.clockEnable || gameboy2.io.serial.clockOut
+    }
+    gameboy2.io.serial.in := gameboy.io.serial.out
+    gameboy2.io.serial.clockIn := !gameboy.io.serial.clockEnable || gameboy.io.serial.clockOut
+
+    bios.readPorts(1).enable := gameboy2.io.bootRom.read
+    bios.readPorts(1).address := gameboy2.io.bootRom.address +& Mux(gameboy2.io.isCgb, 256.U, 0.U)
+    gameboy2.io.bootRom.data := bios.readPorts(1).data
+
+    val emuCart2 = Module(new EmuCartridge(8 * 1024 * 1024))
+    when (regCoreReset || regCoreResetOnce || !syncEnable) {
+      emuCart2.reset := true.B
+    }
+    emuCart2.io.config := configRegEmuCart
+    emuCart2.io.tCycle := gameboy2.io.tCycle
+    emuCart2.io.rtcAccess.writeEnable := false.B
+    emuCart2.io.rtcAccess.writeState := DontCare
+    emuCart2.io.rtcAccess.latchSelect := false.B
+    emuCart2.io.imu.x := configRegImuAccelX
+    emuCart2.io.imu.y := configRegImuAccelY
+    emuCart2.io.ssIn := 0.U
+    emuCart2.io.ssLoad := false.B
+    emuCart2.io.cartridge <> gameboy2.io.cartridge
+    // Both cores stop together, so the cable between them keeps its timing.
+    when ((emuCart.io.config.enabled && emuCart2.io.stall && syncEnable) || sync.io.stall) {
+      doStall := true.B
+    }
+
+    val sdramBridge2 = Module(new PipelineInterfaceBridge(addressWidth = 25, dataWidth = 32))
+    sdramBridge2.io.dest <> sdramArbiter.io.initiator(3)
+    val sdram2 = sdramBridge2.io.source
+    sdram2.enable := false.B
+    sdram2.write := false.B
+    sdram2.address := DontCare
+    sdram2.dataWrite := DontCare
+    sdram2.writeStrobe := DontCare
+    val sram2 = sramArbiter.io.initiator(2)
+    sram2.enable := false.B
+    sram2.write := false.B
+    sram2.address := DontCare
+    sram2.dataWrite := DontCare
+    sram2.writeStrobe := DontCare
+
+    // Same access path as the first emulated cartridge.
+    val access = emuCart2.io.dataAccess
+    val regBusy = RegInit(false.B)
+    val regDataRead = Reg(UInt(8.W))
+    val regDataWrite = Reg(UInt(8.W))
+    val regAddress = Reg(UInt(23.W))
+    val regIsWrite = Reg(Bool())
+    val regSelectRom = Reg(Bool())
+    val accessStart = access.enable && !emuCart2.reset.asBool
+    val dataWrite = Mux(accessStart, access.dataWrite, regDataWrite)
+    val address = Mux(accessStart, access.address, regAddress)
+    val isWrite = Mux(accessStart, access.write, regIsWrite)
+    val selectRom = Mux(accessStart, access.selectRom, regSelectRom)
+    when (accessStart) {
+      regBusy := true.B
+      regDataWrite := access.dataWrite
+      regAddress := access.address
+      regIsWrite := access.write
+      regSelectRom := access.selectRom
+    }
+    access.valid := false.B
+    access.dataRead := regDataRead
+    when (accessStart || regBusy) {
+      when (selectRom) {
+        when (isWrite) {
+          access.valid := true.B
+        } .otherwise {
+          sdram2.enable := true.B
+          sdram2.address := configRegRomAddress + (Cat(address(22, 2), "b00".U(2.W)) & configRegRomMask)
+          access.dataRead := sdram2.dataRead.asTypeOf(Vec(4, UInt(8.W)))(address(1, 0))
+          access.valid := sdram2.done
+        }
+      } .otherwise {
+        sram2.enable := true.B
+        sram2.write := isWrite
+        sram2.address := dualRegRamAddress.get + (Cat(address(16, 1), "b0".U(1.W)) & configRegRamMask)
+        sram2.dataWrite := Fill(2, dataWrite)
+        sram2.writeStrobe := Mux(address(0), "b10".U(2.W), "b01".U(2.W))
+        access.valid := sram2.done
+        access.dataRead := Mux(address(0), sram2.dataRead(15, 8), sram2.dataRead(7, 0))
+      }
+    }
+    when (regBusy && access.valid) {
+      regBusy := false.B
+      regDataRead := access.dataRead
+    }
+    // GB-150: ROM words per core through RomWordReader: the last four words are kept
+    // (CONTROL bit 8) and the next word is fetched in idle time (bit 9), so two cores ask
+    // the shared SDRAM less often and rarely at the moment they need the answer.
+    // It changes how long a read takes, never what it returns. Only in this mode: with the
+    // mode off the first core's ROM path above is untouched.
+    val readers = Seq.fill(2)(Module(new RomWordReader(23, 4)))
+    for (reader <- readers) {
+      reader.io.cache := dualRegControl.get(8)
+      reader.io.prefetch := dualRegControl.get(9)
+      reader.io.flush := regCoreResetCombined
+    }
+    val romAddrV = configRegRomAddress + (Cat(emuCartAddress(22, 2), 0.U(2.W)) & configRegRomMask)
+    val romReadV = (emuCartAccessStart || regEmuCartBusy) && emuCartSelectRom && !emuCartIsWrite &&
+      emuCart.io.config.enabled && syncEnable
+    readers(0).io.reqValid := romReadV
+    readers(0).io.reqAddress := romAddrV >> 2
+    readers(0).io.memDone := sdram.done
+    readers(0).io.memData := sdram.dataRead
+    when (syncEnable) {
+      sdram.enable := readers(0).io.memEnable
+      sdram.write := false.B
+      sdram.address := Cat(readers(0).io.memAddress, 0.U(2.W))
+      when (romReadV) {
+        emuCart.io.dataAccess.dataRead := readers(0).io.respData.asTypeOf(Vec(4, UInt(8.W)))(emuCartAddress(1, 0))
+        emuCart.io.dataAccess.valid := readers(0).io.respValid
+      }
+    }
+    val romAddrH = configRegRomAddress + (Cat(address(22, 2), 0.U(2.W)) & configRegRomMask)
+    val romReadH = (accessStart || regBusy) && selectRom && !isWrite
+    readers(1).io.reqValid := romReadH
+    readers(1).io.reqAddress := romAddrH >> 2
+    readers(1).io.memDone := sdram2.done
+    readers(1).io.memData := sdram2.dataRead
+    sdram2.enable := readers(1).io.memEnable
+    sdram2.address := Cat(readers(1).io.memAddress, 0.U(2.W))
+    when (romReadH) {
+      access.dataRead := readers(1).io.respData.asTypeOf(Vec(4, UInt(8.W)))(address(1, 0))
+      access.valid := readers(1).io.respValid
+    }
+
+    // GB-150 probes: who stops the core clock, and what the ROM reads cost.
+    // 0 core clocks; stopped by 1 visible cartridge only, 2 hidden only, 3 both, 4 the frame sync;
+    // SDRAM ROM reads started 5 visible, 6 hidden; clocks with a read pending 7 visible, 8 hidden;
+    // requests answered from kept words 9 visible, 10 hidden; 11 prefetch reads started, hidden[31:16] visible[15:0].
+    val probe = dualProbe.get
+    def count(i: Int): Unit = { probe(i) := probe(i) + 1.U }
+    val stallV = emuCart.io.config.enabled && emuCart.io.stall
+    val stallH = emuCart.io.config.enabled && emuCart2.io.stall
+    when (!syncEnable) {
+      probe.foreach(_ := 0.U)
+    } .otherwise {
+      when (regCoreFocus) {
+        when (coreTick) { count(0) }
+        when (stallV && !stallH) { count(1) }
+        when (!stallV && stallH) { count(2) }
+        when (stallV && stallH) { count(3) }
+        when (!stallV && !stallH && sync.io.stall) { count(4) }
+      }
+      when (emuCartAccessStart && romReadV && readers(0).io.hit) { count(9) }
+      when (accessStart && romReadH && readers(1).io.hit) { count(10) }
+      when (readers(0).io.startDemand) { count(5) }
+      when (readers(1).io.startDemand) { count(6) }
+      when (sdram.enable) { count(7) }
+      when (sdram2.enable) { count(8) }
+      val prefetchV = readers(0).io.startPrefetch
+      val prefetchH = readers(1).io.startPrefetch
+      when (prefetchV || prefetchH) {
+        probe(11) := Cat(probe(11)(31, 16) + prefetchH.asUInt, probe(11)(15, 0) + prefetchV.asUInt)
+      }
+    }
+  }
 
   // SRAM controller
   val sramController = Module(new AsyncSramController(addressWidth = 18, dataWidth = 16))

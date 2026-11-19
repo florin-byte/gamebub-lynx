@@ -2,6 +2,7 @@ import { Theme } from "../../theme.slint";
 import { Backend, Global } from "../../common.slint";
 import { FileListView } from "../../components/file_list.slint";
 import { ControlHint } from "../../components/control_hint.slint";
+import { ButtonList } from "../../components/button_list.slint";
 
 export component CoreFileSelect {
     private property <bool> has-error: Backend.core-file-select-error != "";
@@ -18,9 +19,25 @@ export component CoreFileSelect {
         list.set-current-item(Backend.core-file-select-index);
     }
 
+    // GB-162: the question for a game of a system with "Dual Core Link" on.
+    private property <bool> ask: Backend.core-file-select-ask;
+    changed ask => {
+        if (ask) {
+            i-ask-list.focused-item = 0;
+            i-ask-list.focus();
+        } else {
+            list.focus();
+        }
+    }
+
     i-focus-scope := FocusScope {
         key-pressed(event) => {
             if (Backend.core-file-select-is-loading) {
+                accept
+            } else if (ask) {
+                if (event.text == "b" && !event.repeat) {
+                    Backend.core-file-select-answer(-1);
+                }
                 accept
             } else if (has-error) {
                 if (event.text == "a" || event.text == "b") {
@@ -63,7 +80,7 @@ export component CoreFileSelect {
                     width: scroll-bar.x;
                     model: Backend.core-file-select-list;
                     wrap: true;
-                    disabled: Backend.core-file-select-is-loading || has-error;
+                    disabled: Backend.core-file-select-is-loading || has-error || ask;
                     on-item-selected(i) => {
                         Backend.core-file-select-index = i;
                         Backend.core-file-select-selected(i);
@@ -104,6 +121,22 @@ export component CoreFileSelect {
                 ControlHint {
                     label: "Select";
                     button: "a";
+                }
+            }
+        }
+
+        Rectangle {
+            visible: ask && !Backend.core-file-select-is-loading;
+            background: Theme.surface;
+            border-color: Theme.border;
+            border-width: 1px;
+            width: i-ask-list.min-width;
+            height: i-ask-list.min-height;
+
+            i-ask-list := ButtonList {
+                items: ["Play", "Dual Core Link"];
+                on-selected(item) => {
+                    Backend.core-file-select-answer(item);
                 }
             }
         }

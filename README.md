@@ -2,12 +2,27 @@
 
 This is the Atari Lynx core for the [Game Bub](https://github.com/elipsitz/gamebub), loaded from the SD card. It is
 the MiSTer core ([AtariLynx_MiSTer](https://github.com/MiSTer-devel/AtariLynx_MiSTer) by Robert Peip) glued to Eli's
-Game Bub framework (1.1.0-beta3). It is not an official Game Bub core, I just ported it.
+Game Bub framework (1.1.0-beta4). It is not an official Game Bub core, I just ported it.
 
 The repo is my fork of the Game Bub code, cut down to what the Lynx needs: the FPGA framework, the Lynx core, the
 firmware and the scripts to build it.
 
 If you only want to play, take the zip from the [releases](../../releases), you don't need to build anything.
+
+## Update of 19 Nov 2026
+
+- The core is now built on Eli's beta4 framework (1.1.0-beta4), so gamepads through the dock work with beta4.
+  Use it with firmware 1.1.0-beta4 or my firmware v0.5.0; copy the JSON files together with the bitstream.
+- **The boot ROM moved:** put `lynxboot.img` in the core's own folder, `cores/Retro-Bub.Lynx/lynxboot.img`.
+  Beta4 only accepts file names inside the core folder, so the old `/sdcard/system/lynxboot.img` path made the core
+  fail with "invalid filename". Copying the file you already have is enough.
+- New settings: CPU/GPU Turbo and Rewind (hold L), see below.
+- The "Swap A/B" entry is no longer in `settings.json`: beta4 refuses settings at framework addresses. My firmware
+  adds Swap A/B by itself before Reset (`hardware.button_remap` in `core.json`).
+- **Known issue:** switching quickly between rewind, playing, save state and rewind again can leave the picture frozen
+  (the sound keeps going and Home still works). Exit and reload the game if it happens.
+
+I tested this on my rev2. The rev4 build meets timing but has not been tested on a rev4 console.
 
 ## Update prepared on 23 Oct 2026
 
@@ -29,8 +44,8 @@ If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdA
 
 1. Copy the files in `metadata/` to a `cores/Retro-Bub.Lynx/` folder on your SD card and put the bitstream next to the
    json files (`lynx-gamebub_rev4.bit` for rev4, `lynx-gamebub_rev2.bit` for rev2).
-2. You need your own Lynx boot rom: `system/lynxboot.img`, 512 bytes. It is not here and it will not be, it is
-   Atari's code, so dump it from your own Lynx. Without it the core will not start.
+2. You need your own Lynx boot rom: `lynxboot.img`, 512 bytes, in the same `cores/Retro-Bub.Lynx/` folder. It is
+   not here and it will not be, it is Atari's code, so dump it from your own Lynx. Without it the core will not start.
 3. Games are `.lnx` or `.lyx`.
 
 ## Settings
@@ -44,8 +59,8 @@ If you want to look at it: `LcdAspectScaler.geometry` and the rev4 test in `LcdA
   games that slow down run smoother (MiSTer's "CPU GPU Turbo"). Some games may run too fast; turn it off then.
 - Rewind (hold L): keeps the last ~20 s (a state every 156 ms, 128 states); hold L to go back. While it is on,
   L is no longer Option 1 (X still is).
-- Swap A/B (right before Reset): swaps the handheld A and B buttons for this core. Menus stay unchanged.
-  It is off by default and the core keeps its setting after exit. Docked gamepads use their separate Dock setting.
+- Swap A/B (right before Reset, with my firmware only): swaps the handheld A and B buttons for this core. Menus stay
+  unchanged. It is off by default and the core keeps its setting after exit. Docked gamepads use their separate Dock setting.
 - Reset.
 
 ## Save states
@@ -54,7 +69,7 @@ The unified RTL and both sets of JSON files are in this branch. Use the matching
 bitstreams do not support the new register map or the stock container. I tested the on-demand path on rev2.
 The stock firmware path is not hardware-tested by me and is left for other users to test.
 
-- Stock firmware (1.1.0-beta3): use `metadata/` with the matching new bitstream. State Slot, Save State
+- Stock firmware (1.1.0-beta4): use `metadata/` with the matching new bitstream. State Slot, Save State
   and Load State use four slots in `<rom>.lnxstate` (512 KiB), loaded when the game starts and written when you
   exit the game normally. **States saved during the session are lost if you power off or the game crashes
   before a normal exit.** An empty slot is refused without restoring it.
@@ -101,9 +116,10 @@ actions to `on_demand.rs` instead of writing them to the core.
 
 ## How Swap A/B works
 
-The list at `0xF1001208` writes `0x0B0A0908` for Off and `0x0A0B0908` for On, setting ID `0x7FF1`.
-`hardware.button_remap` lets my firmware add the setting if JSON does not already contain it.
-In framework v2, `0xF1001018` is video darken; do not use an older Swap A/B checkbox there with this bitstream.
+The register is the framework's list at `0xF1001208`: Off writes `0x0B0A0908`, On writes `0x0A0B0908`, setting ID
+`0x7FF1`. Since beta4 the firmware refuses a `settings.json` entry at a framework address (`0xF0000000` and up), so the
+entry is no longer in the JSON. `"hardware": { "button_remap": true }` in `core.json` tells my firmware to add the list
+right before Reset. In framework v2, `0xF1001018` is video darken; do not put an older Swap A/B checkbox there.
 I tested handheld A/B mapping on rev2. Docked gamepads keep their separate Dock setting.
 
 ## Building the bitstream

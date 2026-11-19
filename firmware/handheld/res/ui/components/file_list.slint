@@ -44,14 +44,25 @@ component FileListItem {
         colorize: Theme.icon;
     }
 
-    i-text := ScrollingText {
+    // GB-174: a plain elided Text on every row; the scrolling text (several texts and a timer, ~150
+    // allocations) only on the selected row. Every visible row used to hold one, ~45 KB in >1200
+    // pieces for the file list, kept while a game runs.
+    i-text := Text {
         x: 12px;
         // Limit the maximum width of text to save memory with many long filenames.
-        // TODO: figure out if this is a Slint bug, or if it can be optimized another way.
         width: min(250px, parent.width - self.x);
         text: entry.name;
-        // Scroll the name of the selected file if it doesn't fit.
-        active: is-selected;
+        overflow: elide;
+        vertical-alignment: center;
+        visible: !is-selected;
+    }
+
+    // Scroll the name of the selected file if it doesn't fit.
+    if is-selected: ScrollingText {
+        x: 12px;
+        width: min(250px, parent.width - self.x);
+        text: entry.name;
+        active: true;
     }
 }
 

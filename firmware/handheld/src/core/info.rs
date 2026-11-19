@@ -1,11 +1,22 @@
 use arrayvec::{ArrayString, ArrayVec};
 use serde::Deserialize;
 use slint::SharedString;
-use std::{fs::File, io::BufReader, path::PathBuf};
+use std::{
+    fs::File,
+    io::{BufReader, ErrorKind},
+    path::{Path, PathBuf},
+};
 
 use crate::device::drivers::fpga;
 
 pub const DIR_CORES: &str = "/sdcard/cores/";
+
+const MAX_CORE_BITSTREAMS: usize = 16;
+const MAX_CORE_FILES: usize = 16;
+const MAX_CORE_SETTINGS: usize = 16;
+const FRAMEWORK_ADDR_START: u32 = 0xF000_0000;
+const MIN_TRANSFER_SPEED_KBS: u32 = 1_000;
+const MAX_TRANSFER_SPEED_KBS: u32 = 1_000_000;
 
 #[derive(Deserialize)]
 pub struct CoreListEntry {
@@ -47,6 +58,10 @@ pub struct CoreCheats {
     /// The core's capacity (MiSTer's CODES: 32).
     #[serde(default = "default_max_codes")]
     pub max_codes: u32,
+    /// The system's folder under `/sdcard/cheats/` (libretro-database's `cht/<system>`, e.g. "Sega - Game Gear"),
+    /// where `<rom name>.cht` is looked for when the ROM has no `.cht` next to it.
+    #[serde(default)]
+    pub folder: Option<String>,
 }
 
 #[derive(Clone, Copy, Deserialize)]
@@ -57,6 +72,10 @@ pub enum CheatFormat {
     /// Master System / Game Gear: Game Genie (`XXX-YYY`, `XXX-YYY-ZZZ`), Pro Action Replay (`00AA-AAVV`) and
     /// raw `AAAA:VV` (Genesis Plus GX's decode_cheat).
     Sms,
+    /// Super Nintendo: Pro Action Replay (`AAAAAAVV`), Game Genie (`XXXX-XXXX`) and raw `AAAAAA:VV` (snes9x).
+    Snes,
+    /// Mega Drive: Game Genie (`XXXX-XXXX`) and Pro Action Replay (`AAAAAA:DDDD`, `AAAAAA:DD`) (Genesis Plus GX).
+    Md,
     /// A format this firmware does not know: the core loads without cheats (a core.json written for a newer
     /// firmware must not make the core disappear from the list).
     #[serde(other)]
@@ -104,12 +123,12 @@ pub struct CoreFile {
     /// If true, if the file is not loaded, the region will still be initialized with 0xFFs.
     #[serde(default)]
     pub initialize: bool,
-    /// If true, the file is not loaded at start or saved at exit: it is transferred while the
-    /// core runs, when the core handler requests it (for example a save state).
+    /// If true, the file is not automatically loaded at startup.
     #[serde(default)]
     pub on_demand: bool,
 
     /// The address to load the file to.
+    #[serde(default)]
     #[serde(deserialize_with = "deserialize_hex_u32")]
     pub address: u32,
     /// Maximum size of the file.
@@ -195,6 +214,16 @@ pub struct CoreSettingListItem {
     pub value: u32,
 }
 
+impl CoreSetting {
+    pub fn is_valid_value(&self, val: u32) -> bool {
+        match &self.inner {
+            CoreSettingType::Action { .. } => val == 0,
+            CoreSettingType::Checkbox { value } => *value != 0 && (val == 0 || val == *value),
+            CoreSettingType::List { items, .. } => items.iter().any(|item| item.value == val),
+        }
+    }
+}
+
 impl CoreInfo {
     pub fn get_settings_path(&self) -> PathBuf {
         let mut p = PathBuf::from(super::DIR_SETTINGS);
@@ -221,6 +250,7 @@ pub fn list_cores() -> Vec<CoreListEntry> {
     ];
 
     // Iterate over possible core directories.
+    #[cfg(not(feature = "no_beta_cores"))]
     if let Ok(entries) = std::fs::read_dir(DIR_CORES) {
         for entry in entries {
             let entry = match entry {
@@ -240,16 +270,13 @@ pub fn list_cores() -> Vec<CoreListEntry> {
                 continue;
             }
 
-            let mut path = entry.path();
-            path.push("core.json");
-
-            let file = match File::open(&path) {
-                Ok(file) => file,
-                Err(_) => {
-                    log::warn!("Failed to open core file");
-                    continue;
-                }
+            let file_name = entry.file_name();
+            let Some(folder_name) = file_name.to_str() else {
+                continue;
             };
+            if folder_name == "Game-Bub.GB" || folder_name == "Game-Bub.GBA" {
+                continue;
+            }
 
             /// Helper struct to extract only high-level info from core
             #[derive(Deserialize)]
@@ -257,15 +284,22 @@ pub fn list_cores() -> Vec<CoreListEntry> {
                 metadata: CoreListEntry,
             }
 
-            let reader = BufReader::with_capacity(256, file);
-            match serde_json::from_reader::<_, MinimalCoreInfo>(reader) {
-                Ok(info) => cores.push(info.metadata),
+            let info = match try_read_json::<MinimalCoreInfo>(&entry.path(), "core.json") {
+                Ok(Some(info)) => info.metadata,
+                Ok(None) => continue,
                 Err(e) => {
-                    let filename = path.file_name().unwrap_or_default();
-                    log::warn!("Error parsing core file {filename:?}: {e:?}");
+                    log::warn!("{folder_name}: {e}");
                     continue;
                 }
             };
+            if info.id.as_str() != folder_name {
+                log::warn!(
+                    "Core ID '{}' does not match folder '{folder_name}'",
+                    info.id
+                );
+                continue;
+            }
+            cores.push(info);
         }
     }
 
@@ -315,6 +349,7 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
     #[derive(Deserialize)]
     struct JsonCoreInfo {
         metadata: JsonCoreMetadata,
+        #[serde(deserialize_with = "deserialize_bounded_vec::<_, _, MAX_CORE_BITSTREAMS>")]
         bitstreams: Vec<JsonCoreBitstream>,
         #[serde(default)]
         hardware: JsonCoreHardware,
@@ -324,62 +359,63 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
 
     #[derive(Deserialize)]
     struct JsonSettings {
+        #[serde(deserialize_with = "deserialize_bounded_vec::<_, _, MAX_CORE_SETTINGS>")]
         settings: Vec<CoreSetting>,
     }
 
     #[derive(Deserialize)]
     struct JsonFiles {
+        #[serde(deserialize_with = "deserialize_bounded_vec::<_, _, MAX_CORE_FILES>")]
         files: Vec<CoreFile>,
+    }
+
+    if id.is_empty() || id == "." || id == ".." || id.contains('/') {
+        return Err(format!("Invalid core ID '{id}'"));
     }
 
     let mut core_dir = PathBuf::from(DIR_CORES);
     core_dir.push(id);
 
-    // Read core.json
-    let json_core: JsonCoreInfo = {
-        let file =
-            File::open(&core_dir.join("core.json")).map_err(|_| "Failed to open core.json")?;
-        let reader = BufReader::with_capacity(256, file);
-        serde_json::from_reader(reader).map_err(|e| format!("Failed to parse core.json: {e}"))?
-    };
+    let json_core: JsonCoreInfo = try_read_json(&core_dir, "core.json")?
+        .ok_or_else(|| format!("Missing core.json in /cores/{id}"))?;
+
+    if json_core.metadata.id.as_str() != id {
+        return Err(format!(
+            "core.json: metadata.id '{}' does not match dir '{id}'",
+            json_core.metadata.id
+        ));
+    }
+    if json_core.metadata.name.trim().is_empty() || json_core.metadata.author.trim().is_empty() {
+        return Err("core.json: metadata name and author cannot be empty".into());
+    }
 
     // Find the right bitstream (TODO: use a visitor that extracts the right one).
     // https://serde.rs/stream-array.html
+    let target = get_device_target();
     let bitstream = json_core
         .bitstreams
         .iter()
-        .find_map(|b| {
-            if b.target.as_str() == get_device_target() && b.filename.ends_with(".bit") {
-                Some(b.filename)
-            } else {
-                None
-            }
-        })
-        .ok_or("No compatible bitstream")?;
+        .find_map(|b| (b.target.as_str() == target).then_some(b.filename))
+        .ok_or_else(|| format!("core.json: no bitstream for target '{target}'"))?;
+    if !bitstream.ends_with(".bit") || !validate_subpath(bitstream.as_str()) {
+        return Err(format!(
+            "core.json: invalid bitstream filename '{bitstream}'"
+        ));
+    }
+    let bitstream_path = core_dir.join(bitstream.as_str());
+    if !bitstream_path.is_file() {
+        return Err(format!("core.json: bitstream '{bitstream}' not found"));
+    }
 
-    // Read settings.json
-    let settings = {
-        if let Ok(file) = File::open(&core_dir.join("settings.json")) {
-            let reader = BufReader::with_capacity(256, file);
-            let settings: JsonSettings = serde_json::from_reader(reader)
-                .map_err(|e| format!("Failed to parse settings.json: {e}"))?;
-            settings.settings
-        } else {
-            Vec::new()
-        }
-    };
+    let settings = try_read_json::<JsonSettings>(&core_dir, "settings.json")?
+        .map(|s| s.settings)
+        .unwrap_or_default();
+    validate_settings(&settings)?;
 
-    // Read files.json
-    let files = {
-        if let Ok(file) = File::open(&core_dir.join("files.json")) {
-            let reader: BufReader<File> = BufReader::with_capacity(256, file);
-            let files: JsonFiles = serde_json::from_reader(reader)
-                .map_err(|e| format!("Failed to parse files.json: {e}"))?;
-            files.files
-        } else {
-            Vec::new()
-        }
-    };
+    let files = try_read_json::<JsonFiles>(&core_dir, "files.json")?
+        .map(|f| f.files)
+        .unwrap_or_default();
+    validate_files(&files)?;
 
     let mut core = CoreInfo {
         id: json_core.metadata.id,
@@ -389,7 +425,7 @@ pub fn get_core(id: &str) -> Result<CoreInfo, String> {
         button_remap: json_core.hardware.button_remap,
         is_built_in: false,
         files,
-        bitstream: core_dir.join(bitstream),
+        bitstream: bitstream_path,
         settings,
         core_dir,
         cheats: json_core.cheats,
@@ -457,17 +493,173 @@ fn is_reset_action(setting: &CoreSetting) -> bool {
         && setting.address != 0xFFFF_FFFF
 }
 
+fn validate_subpath(path: &str) -> bool {
+    !path.is_empty()
+        && !path.contains('\\')
+        && path
+            .split('/')
+            .all(|s| !s.is_empty() && s != "." && s != "..")
+}
+
+fn validate_files(files: &[CoreFile]) -> Result<(), String> {
+    let file_0 = files.iter().find(|f| f.id == 0);
+    for (i, f) in files.iter().enumerate() {
+        let id = f.id;
+        if files[..i].iter().any(|prev| prev.id == id) {
+            return Err(format!("files.json: duplicate file id {id}"));
+        }
+
+        let sources =
+            (f.filename.is_some() as u32) + (f.user_selected as u32) + (f.dependent_on_0 as u32);
+        // Retro Bub: a file transferred by a firmware action (a save-state slot) has no source of its own,
+        // its path is the path of file 0 with the slot's extension.
+        let firmware_slot_file = f.on_demand && sources == 0;
+        if sources != 1 && !firmware_slot_file {
+            return Err(format!(
+                "files.json [id={id}]:\nmust set exactly one of filename, user_selected, or dependent_on_0"
+            ));
+        }
+
+        if f.extensions
+            .iter()
+            .any(|ext| ext.is_empty() || ext.starts_with('.') || ext.contains('/'))
+        {
+            return Err(format!("files.json [id={id}]:\ninvalid file extension"));
+        }
+        if f.user_selected && f.extensions.is_empty() {
+            return Err(format!(
+                "files.json [id={id}]:\nuser_selected requires extensions"
+            ));
+        }
+
+        if let Some(filename) = f.filename.as_ref() {
+            if !validate_subpath(filename.as_str()) {
+                return Err(format!(
+                    "files.json [id={id}]:\ninvalid filename '{filename}'"
+                ));
+            }
+        }
+
+        if f.dependent_on_0 {
+            let valid_f0 = id != 0
+                && !f.extensions.is_empty()
+                && file_0.is_some_and(|f0| f0.user_selected && (!f0.optional || f.optional));
+            if !valid_f0 {
+                return Err(format!(
+                    "files.json [id={id}]:\ninvalid dependent_on_0 configuration"
+                ));
+            }
+        }
+
+        if f.max_transfer_speed < MIN_TRANSFER_SPEED_KBS
+            || f.max_transfer_speed > MAX_TRANSFER_SPEED_KBS
+        {
+            return Err(format!(
+                "files.json [id={id}]:\ninvalid max_transfer_speed {}",
+                f.max_transfer_speed
+            ));
+        }
+
+        if !f.on_demand && (f.address % 4 != 0 || f.address >= FRAMEWORK_ADDR_START) {
+            return Err(format!(
+                "files.json [id={id}]: invalid address 0x{:08X}",
+                f.address
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_settings(settings: &[CoreSetting]) -> Result<(), String> {
+    for (i, s) in settings.iter().enumerate() {
+        let id = s.id;
+        if settings[..i].iter().any(|prev| prev.id == id) {
+            return Err(format!("settings.json: duplicate setting id {id}"));
+        }
+        // Retro Bub: a setting handled by the firmware (a file action or a file slot list) writes no
+        // register, and a settings.json made for older stock firmware may carry its own Swap A/B entry.
+        let firmware_handled = matches!(
+            s.inner,
+            CoreSettingType::Action { file: Some(_), .. }
+                | CoreSettingType::List { file_slots: Some(_), .. }
+        ) || s.address == fpga::REG_CTRL_BUTTON_REMAP_AB;
+        if !firmware_handled && (s.address % 4 != 0 || s.address >= FRAMEWORK_ADDR_START) {
+            return Err(format!(
+                "settings.json [id={id}]:\ninvalid address 0x{:08X}",
+
+                s.address
+            ));
+        }
+        if !s.is_valid_value(s.default) {
+            return Err(format!(
+                "settings.json [id={id}]:\ninvalid default value 0x{:X}",
+                s.default
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn try_read_json<T: serde::de::DeserializeOwned>(
+    core_dir: &Path,
+    filename: &str,
+) -> Result<Option<T>, String> {
+    let file = match File::open(core_dir.join(filename)) {
+        Ok(file) => file,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Failed to open {filename}: {e}")),
+    };
+    let reader = BufReader::with_capacity(256, file);
+    serde_json::from_reader(reader)
+        .map(Some)
+        .map_err(|e| format!("Invalid {filename}: {e}"))
+}
+
 fn get_device_target() -> &'static str {
     #[cfg(feature = "rev1")]
-    const TARGET: &'static str = "gamebub_rev1";
+    const TARGET: &str = "gamebub_rev1";
     #[cfg(feature = "rev2")]
-    const TARGET: &'static str = "gamebub_rev2";
+    const TARGET: &str = "gamebub_rev2";
     #[cfg(feature = "rev3")]
-    const TARGET: &'static str = "gamebub_rev3";
+    const TARGET: &str = "gamebub_rev3";
     #[cfg(feature = "rev4")]
-    const TARGET: &'static str = "gamebub_rev4";
+    const TARGET: &str = "gamebub_rev4";
 
     TARGET
+}
+
+/// Serde helper to deserialize a Vec with an upper bound enforced during parsing.
+fn deserialize_bounded_vec<'de, D, T, const MAX: usize>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct Visitor<T, const MAX: usize>(Vec<T>);
+
+    impl<'de, T: Deserialize<'de>, const MAX: usize> serde::de::Visitor<'de> for Visitor<T, MAX> {
+        type Value = Vec<T>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            write!(f, "a list with at most {MAX} items")
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(
+            mut self,
+            mut seq: A,
+        ) -> Result<Vec<T>, A::Error> {
+            while let Some(elem) = seq.next_element()? {
+                if self.0.len() == MAX {
+                    return Err(serde::de::Error::custom(format_args!(
+                        "too many items (max {MAX})"
+                    )));
+                }
+                self.0.push(elem);
+            }
+            Ok(self.0)
+        }
+    }
+
+    deserializer.deserialize_seq(Visitor::<T, MAX>(Vec::new()))
 }
 
 /// Serde helper to deserialize a u32, either from a hex string or a number

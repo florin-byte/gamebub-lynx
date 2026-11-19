@@ -13,19 +13,37 @@ component CoreListItem inherits HorizontalLayout {
 
     // On a 240 px wide UI (rev 1/2) 160 + 80 px of minimum widths don't fit, which pushed the
     // author out of the list; smaller minimums keep both columns visible.
-    ScrollingText {
+    // GB-174: plain elided texts on the rows, the scrolling texts only on the selected row.
+    if !is-selected: Text {
         text: core.core-name;
-        // Scroll the name and author of the selected core if they don't fit.
-        active: is-selected;
+        color: Theme.fg;
+        overflow: elide;
+        vertical-alignment: center;
+        min-width: 120px;
+        horizontal-stretch: 2.0;
+    }
+    // Scroll the name and author of the selected core if they don't fit.
+    if is-selected: ScrollingText {
+        text: core.core-name;
+        active: true;
         min-width: 120px;
         horizontal-stretch: 2.0;
     }
 
-    ScrollingText {
+    if !is-selected: Text {
+        text: core.core-author;
+        color: Theme.text-secondary;
+        horizontal-alignment: right;
+        overflow: elide;
+        vertical-alignment: center;
+        min-width: 60px;
+        horizontal-stretch: 1.0;
+    }
+    if is-selected: ScrollingText {
         text: core.core-author;
         text-color: Theme.text-secondary;
         align: TextHorizontalAlignment.right;
-        active: is-selected;
+        active: true;
         min-width: 60px;
         horizontal-stretch: 1.0;
     }

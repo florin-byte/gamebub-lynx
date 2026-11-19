@@ -6,12 +6,13 @@ import gba.link.Link.JoybusCommand
 import gba.{MMIO, MmioMap, MmioTarget}
 import lib.log.Logger
 
-class Link extends Module {
+class Link(wirelessGuardCycles: Int = 67108864, emulatedTime: Boolean = false) extends Module {
   val io = IO(new Bundle {
     val enable = Input(Bool())
     val mmio = new MmioTarget()
     val irq = Output(Bool())
 
+    val wireless = new WirelessSioPort
     val port = new Link.Interface
   })
   val logger = Logger("link", enable = io.enable)
@@ -186,16 +187,73 @@ class Link extends Module {
   io.port.dir.sd := true.B
   io.port.dir.sc := false.B
 
-  val uartTimer = Module(new UartTimer)
+  val uartTimer = Module(new UartTimer(emulatedTime = emulatedTime))
   uartTimer.io.enable := io.enable
   uartTimer.io.baudrate := DontCare
+
+  val wireless = Module(new WirelessSio(wirelessGuardCycles))
+  wireless.io.port <> io.wireless
+  val normal32 = mode === Link.Mode.Normal && regSiocnt(12)
+  val wirelessMulti = mode === Link.Mode.Multi && io.wireless.enabled && io.wireless.command.bits.multiEnabled
+  val multiParent = io.wireless.command.bits.multiParent
+  val multiReady = io.wireless.command.bits.multiReady
+  val syncMulti = io.wireless.command.bits.syncEnabled
+  val sawMultiPeer = RegInit(false.B)
+  when (!wirelessMulti || io.wireless.clear) { sawMultiPeer := false.B }
+    .elsewhen (multiReady) { sawMultiPeer := true.B }
+  // Retain a parent's START while its peer enters Multiplayer. Arm the child
+  // before READY so its first anchor cannot drift with HELLO delivery.
+  val multiStart = wirelessMulti && (multiReady || syncMulti) && (!multiParent || regSiocntStart)
+  val multiError = RegInit(false.B)
+  val wirelessChildId = RegInit(false.B)
+  val wasWirelessMulti = RegNext(wirelessMulti, false.B)
+  // The cable sends 18 UART bits per word. Match the rounded increment in
+  // UartTimer and its reset at the start of each word.
+  val multiWordCyclesByBaud = VecInit(UartTimer.baudrates.map { baud =>
+    val increment = (baud / 128.0).round.toInt
+    val ticks = 18 * (1 << 17)
+    ((ticks + increment - 1) / increment).U(17.W)
+  })
+  val multiWordCycles = multiWordCyclesByBaud(regSiocnt(1, 0))
+  wireless.io.multiWordCycles := multiWordCycles
+  wireless.io.multiBaud := regSiocnt(1, 0)
+  // Two words and the original 512-cycle wait for another cable player.
+  wireless.io.multiCycles := (multiWordCycles << 1) + Mux(multiParent, 514.U, 515.U)
+  wireless.io.multiMode := mode === Link.Mode.Multi
+  wireless.io.enable := io.enable
+  wireless.io.multi := wirelessMulti
+  wireless.io.multiLost := !wirelessMulti || (!multiReady && (!syncMulti || sawMultiPeer))
+  wireless.io.start := io.enable && ((normal32 && regSiocntStart) || multiStart)
+  wireless.io.cancel := io.enable && Mux(wireless.io.completedMulti,
+    mode =/= Link.Mode.Multi || (wireless.io.multiBusy && siocntStartUnset),
+    !normal32 || siocntStartUnset)
+  wireless.io.master := Mux(wirelessMulti, multiParent, regSiocnt(0))
+  wireless.io.data := Mux(wirelessMulti, Cat(0.U(16.W), regDataA), Cat(regDataB1, regDataB0))
+
+  when (!wirelessMulti) {
+    multiError := false.B
+    wirelessChildId := false.B
+  } .elsewhen (wireless.io.multiChildTurn) {
+    wirelessChildId := true.B
+  }
 
   switch (mode) {
     is (Link.Mode.Normal) {
       handleNormal()
     }
     is (Link.Mode.Multi) {
-      handleMulti()
+      when (wirelessMulti) {
+        val low = Wire(new Link.MultiSiocntLo)
+        low.baud := regSiocnt(1, 0)
+        low.si := !multiParent
+        low.sd := multiReady
+        low.id := (!multiParent && wirelessChildId).asUInt
+        low.error := multiError
+        low.busy := wireless.io.multiBusy
+        siocntReadValueLo := low.asUInt
+      } .otherwise {
+        handleMulti(wasWirelessMulti)
+      }
     }
     is (Link.Mode.Gpio) {
       handleGpio()
@@ -204,6 +262,48 @@ class Link extends Module {
       handleJoybus()
     }
     // TODO support UART mode
+  }
+
+  val wirelessMultiIrq = RegInit(false.B)
+  when (io.enable) { wirelessMultiIrq := false.B }
+  when (wirelessMultiIrq && io.enable && mode === Link.Mode.Multi) { io.irq := true.B }
+
+  when (wirelessMulti && wireless.io.multiSlot0.valid) {
+    regDataB0 := wireless.io.multiSlot0.bits
+  }
+  when (wirelessMulti && wireless.io.multiSlot1.valid) {
+    regDataB1 := wireless.io.multiSlot1.bits
+  }
+  when (wireless.io.done) {
+    when (wireless.io.completedMulti && mode === Link.Mode.Multi) {
+      multiError := wireless.io.failed
+      when (wireless.io.failed) {
+        regDataB0 := wireless.io.received(15, 0)
+        regDataB1 := wireless.io.received(31, 16)
+        regDataB2 := "hffff".U
+        regDataB3 := "hffff".U
+        wirelessMultiIrq := regSiocnt(14)
+      } .otherwise {
+        // As with cable, the words are already visible before completion.
+        io.irq := regSiocnt(14)
+      }
+    } .elsewhen (!wireless.io.completedMulti && normal32) {
+      regDataB0 := wireless.io.received(15, 0)
+      regDataB1 := wireless.io.received(31, 16)
+      io.irq := regSiocnt(14)
+    }
+  }
+  val wasMultiBusy = RegNext(wireless.io.multiBusy, false.B)
+  when (wirelessMulti && wireless.io.multiBusy && !wasMultiBusy) {
+    multiError := false.B
+    regDataB0 := "hffff".U
+    regDataB1 := "hffff".U
+    regDataB2 := "hffff".U
+    regDataB3 := "hffff".U
+  }
+  when (io.wireless.enabled && (normal32 || wirelessMulti)) {
+    io.port.dir := 0.U.asTypeOf(new Link.Ports)
+    io.port.out := "b1111".U.asTypeOf(new Link.Ports)
   }
 
   private def handleGpio(): Unit = {
@@ -225,6 +325,7 @@ class Link extends Module {
     val regDataOut = Reg(Bool())
     val regShiftIn = Reg(UInt(32.W))
     val regShiftOut = Reg(UInt(32.W))
+    val regSampleDelay = RegInit(0.U(3.W))
     when (io.enable && prevMode =/= Link.Mode.Normal) {
       regBusy := false.B
     }
@@ -233,7 +334,7 @@ class Link extends Module {
     val siocntLo = regSiocnt.asTypeOf(new Link.NormalSiocntLo)
     val siocntLoRead = Wire(new Link.NormalSiocntLo)
     siocntReadValueLo := siocntLoRead.asUInt
-    siocntLoRead.busy := regBusy
+    siocntLoRead.busy := Mux(io.wireless.enabled && regSiocnt(12), io.wireless.busy, regBusy)
     siocntLoRead._unused := 0.U
     siocntLoRead.soIdle := siocntLo.soIdle
     siocntLoRead.si := io.port.in.si
@@ -253,7 +354,7 @@ class Link extends Module {
     io.port.out.sd := false.B // Always SD = low
     io.port.out.sc := Mux(regBusy, regClockOut, true.B)
 
-    when (regSiocntStart && !regBusy) {
+    when (regSiocntStart && !regBusy && !(io.wireless.enabled && transfer32)) {
       logger.info(cf"Normal start, master=${isMaster}")
       regBusy := true.B
       regMasterHold := false.B
@@ -261,6 +362,7 @@ class Link extends Module {
       regClockCounter := 0.U
       regClockOut := true.B
       regDataOut := siocntLo.soIdle
+      regSampleDelay := 0.U
       when (transfer32) {
         regShiftOut := Cat(regDataB1, regDataB0)
       } .otherwise {
@@ -268,9 +370,10 @@ class Link extends Module {
       }
     }
 
-    when (io.enable && regBusy) {
+    when (io.enable && regBusy && !(io.wireless.enabled && transfer32)) {
       val clockRising = WireDefault(false.B)
       val clockFalling = WireDefault(false.B)
+      val doSample = WireDefault(false.B)
 
       // Control master clock
       when (isMaster) {
@@ -287,6 +390,11 @@ class Link extends Module {
             clockRising := true.B
           }
         }
+        // We delay SI by 3 cycles before sampling to match the delay from the
+        // SC out (1 cycle) -> SI in (2 cycles) path.
+        // This gives the other side enough time to respond at 2 MHz.
+        regSampleDelay := Cat(regSampleDelay, clockRising)
+        doSample := regSampleDelay(2)
       } .otherwise {
         when (io.port.in.sc && !prevPortIn.sc) {
           clockRising := true.B
@@ -294,6 +402,7 @@ class Link extends Module {
         when (!io.port.in.sc && prevPortIn.sc) {
           clockFalling := true.B
         }
+        doSample := clockRising
       }
 
       when (clockFalling) {
@@ -303,9 +412,9 @@ class Link extends Module {
         regShiftOut := regShiftOut << 1
       }
 
-      when (clockRising) {
+      when (doSample) {
         // Shift in
-        logger.debug("Rising clock")
+        logger.debug("Sample (shift in)")
         val nextRegShiftIn = Cat(regShiftIn, io.port.in.si)
         regShiftIn := nextRegShiftIn
 
@@ -345,7 +454,7 @@ class Link extends Module {
     }
   }
 
-  private def handleMulti(): Unit = {
+  private def handleMulti(wasWireless: Bool): Unit = {
     val rxDataRegs = Seq(regDataB0, regDataB1, regDataB2, regDataB3)
 
     // Whether we are acting as a master (always false in Idle)
@@ -354,7 +463,7 @@ class Link extends Module {
     val regError = RegInit(false.B)
     val regState = RegInit(Link.MultiState.Idle)
     val regBusy = RegInit(false.B)
-    when (io.enable && prevMode =/= Link.Mode.Multi) {
+    when (io.enable && (prevMode =/= Link.Mode.Multi || wasWireless)) {
       regState := Link.MultiState.Idle
       regBusy := false.B
       regError := false.B
@@ -392,7 +501,9 @@ class Link extends Module {
 
     switch (regState) {
       is (Link.MultiState.Idle) {
-        regMaster := false.B
+        // GB-156: with emulated time SC is released on a core clock, so that it lasts the
+        // same number of core clocks whatever the stalls are (two cores, two consoles).
+        if (emulatedTime) { when (io.enable) { regMaster := false.B } } else { regMaster := false.B }
         val isInLow = !io.port.in.si  // Determines whether we will be master
         val startMaster = isInLow && regSiocntStart
         val startSlave = !isInLow && !io.port.in.sc

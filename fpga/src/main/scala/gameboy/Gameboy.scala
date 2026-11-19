@@ -97,6 +97,7 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
     val joypad = Input(new JoypadState)
     val apu = new ApuOutput
     val serial = new SerialIo
+    val wireless = new WirelessLinkIo
 
     // Internal state signals
     val tCycle = Output(UInt(2.W))
@@ -111,6 +112,18 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   // Clock control module
   val clockControl = Module(new ClockControl)
   io.clockConfig <> clockControl.io.clockConfig
+  val wirelessStall = Wire(Bool())
+  // Wireless stops the CPU at the end of its accepted bus cycle, not the
+  // peripheral clock. Resume at T0 so cartridge requests get a full M-cycle.
+  val wirelessCpuHeld = RegInit(false.B)
+  val dmaCpuBlocked = Wire(Bool())
+  val wirelessCpuSuspended = wirelessStall || wirelessCpuHeld
+  val cpuSuspended = wirelessCpuSuspended || dmaCpuBlocked
+  when (wirelessStall) {
+    wirelessCpuHeld := true.B
+  } .elsewhen (clockControl.io.clocker.phiPulse && !dmaCpuBlocked) {
+    wirelessCpuHeld := false.B
+  }
   io.tCycle := clockControl.io.clocker.tCycle
 
   // Module: System control
@@ -126,7 +139,16 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   // Module: CPU
   val cpu = Module(new Cpu(config))
   cpu.io.clocker := clockControl.io.clocker
-  cpu.io.interruptRequest := 0.U.asTypeOf(new Cpu.InterruptFlags)
+  val peripheralInterrupts = WireDefault(0.U.asTypeOf(new Cpu.InterruptFlags))
+  val wirelessInterruptPending = RegInit(0.U.asTypeOf(new Cpu.InterruptFlags))
+  when (wirelessCpuSuspended) {
+    wirelessInterruptPending := (wirelessInterruptPending.asUInt |
+      peripheralInterrupts.asUInt).asTypeOf(new Cpu.InterruptFlags)
+  } .elsewhen (cpu.io.clocker.enable) {
+    wirelessInterruptPending := 0.U.asTypeOf(new Cpu.InterruptFlags)
+  }
+  cpu.io.interruptRequest := (peripheralInterrupts.asUInt |
+    wirelessInterruptPending.asUInt).asTypeOf(new Cpu.InterruptFlags)
   systemControl.io.cpuStopState := cpu.io.stopState
   cpu.io.stopStateExit := systemControl.io.cpuStopExit
   io.cpuDebug := cpu.io.debugState
@@ -141,8 +163,8 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   ppu.io.isCgb := io.isCgb
   ppu.io.cgbMode := systemControl.io.cgbMode
   io.ppu := ppu.io.output
-  cpu.io.interruptRequest.vblank := ppu.io.vblankIrq
-  cpu.io.interruptRequest.lcdStat := ppu.io.statIrq
+  peripheralInterrupts.vblank := ppu.io.vblankIrq
+  peripheralInterrupts.lcdStat := ppu.io.statIrq
   // N10: PPU frame-position save-state (LY/tick/LX not IO-restorable).
   ppu.io.ssLoad := io.saveState.miscLoad
   ppu.io.ssIn := io.saveState.miscIn.ppu
@@ -176,7 +198,7 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   // Peripheral: Timer
   val timer = Module(new Timer)
   timer.io.clocker := clockControl.io.clocker
-  cpu.io.interruptRequest.timer := timer.io.interruptRequest
+  peripheralInterrupts.timer := timer.io.interruptRequest
   apu.io.divApu := timer.io.divApu
   systemControl.io.divOverflow := timer.io.divOverflow
 
@@ -184,15 +206,23 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   val joypad = Module(new Joypad)
   joypad.io.clocker := clockControl.io.clocker
   joypad.io.state := io.joypad
-  cpu.io.interruptRequest.joypad := joypad.io.interruptRequest
+  peripheralInterrupts.joypad := joypad.io.interruptRequest
 
   // Peripheral: Serial
   val serial = Module(new Serial(config))
+  serial.io.wireless <> io.wireless
+  wirelessStall := serial.io.wireless.stall
   serial.io.clocker := clockControl.io.clocker
   serial.io.cgbMode := systemControl.io.cgbMode
   serial.io.divSerial := timer.io.divSerial
   serial.io.divSerialFast := timer.io.divSerialFast
-  cpu.io.interruptRequest.serial := serial.io.interruptRequest
+  // A host verdict can arrive between CPU enables, including during a stall.
+  val serialInterruptPending = RegInit(false.B)
+  when (serial.io.interruptRequest) { serialInterruptPending := true.B }
+  when (cpu.io.clocker.enable) { serialInterruptPending := false.B }
+  // Explicit channel clear may complete a normal held master on this edge.
+  when (io.wireless.clear) { serialInterruptPending := serial.io.interruptRequest }
+  cpu.io.interruptRequest.serial := serial.io.interruptRequest || serialInterruptPending
   io.serial <> serial.io.serial
   io.serialDebug := serial.io.debug
 
@@ -210,12 +240,11 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   vramDma.io.cgbMode := systemControl.io.cgbMode
   vramDma.io.hblank := ppu.io.output.hblank
   clockControl.io.vramDmaActive := vramDma.io.active
-  when (io.isCgb) {
-    // VRAM DMA suspends the CPU while it's active.
-    cpu.io.clocker.enable := systemControl.io.clocker.enable && !vramDma.io.active
-    cpu.io.clocker.phiPulse := systemControl.io.clocker.phiPulse && !vramDma.io.active
-    cpu.io.clocker.pulse4Mhz := systemControl.io.clocker.pulse4Mhz && !vramDma.io.active
-  } .otherwise {
+  dmaCpuBlocked := io.isCgb && vramDma.io.active
+  cpu.io.clocker.enable := systemControl.io.clocker.enable && !cpuSuspended
+  cpu.io.clocker.phiPulse := systemControl.io.clocker.phiPulse && !cpuSuspended
+  cpu.io.clocker.pulse4Mhz := systemControl.io.clocker.pulse4Mhz && !cpuSuspended
+  when (!io.isCgb) {
     vramDma.io.enabled := false.B
     vramDma.io.address := DontCare
     vramDma.io.dataWrite := DontCare
@@ -232,7 +261,7 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   cart.io.lastClockCycle := clockControl.io.lastClockCycle
   val busAddress = WireDefault(cpu.io.memAddress)
   val busDataWrite = WireDefault(cpu.io.memDataOut)
-  val busMemEnable = WireDefault(cpu.io.memEnable)
+  val busMemEnable = WireDefault(cpu.io.memEnable && !cpuSuspended)
   val busMemWrite = WireDefault(cpu.io.memWrite)
   val cartRomSelect = busAddress >= 0x0000.U && busAddress < 0x8000.U
   val cartRamSelect = busAddress >= 0xA000.U && busAddress < 0xC000.U
@@ -269,7 +298,7 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   // Work ram
   workRam.io.address := Cat(Mux(busAddress(12), systemControl.io.wramBank, 0.U), busAddress(11, 0))
   workRam.io.enabled := busMemEnable && workRamSelect
-  workRam.io.write := busMemWrite && clockControl.io.clocker.phiPulse
+  workRam.io.write := busMemWrite && cpu.io.clocker.phiPulse
   workRam.io.dataWrite := busDataWrite
 
   // Video ram
@@ -297,8 +326,8 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   } .otherwise {
     // CPU is controlling VRAM bus
     videoRam.io.address := Cat(systemControl.io.vramBank, cpu.io.memAddress(12, 0))
-    videoRam.io.enabled := cpu.io.memEnable && cpuVideoRamSelect
-    videoRam.io.write := cpu.io.memWrite && clockControl.io.clocker.phiPulse
+    videoRam.io.enabled := cpu.io.memEnable && cpuVideoRamSelect && !cpuSuspended
+    videoRam.io.write := cpu.io.memWrite && cpu.io.clocker.phiPulse
     videoRam.io.dataWrite := cpu.io.memDataOut
   }
   ppu.io.vramDataRead := videoRam.io.dataRead
@@ -323,8 +352,8 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
   } .otherwise {
     // CPU is controlling OAM bus
     oam.io.address := cpu.io.memAddress(7, 0)
-    oam.io.enabled := cpu.io.memEnable && cpuOamSelect
-    oam.io.write := cpu.io.memWrite && clockControl.io.clocker.phiPulse
+    oam.io.enabled := cpu.io.memEnable && cpuOamSelect && !cpuSuspended
+    oam.io.write := cpu.io.memWrite && cpu.io.clocker.phiPulse
     oam.io.dataWrite := cpu.io.memDataOut
   }
   ppu.io.oamDataRead := oam.io.dataRead
@@ -390,8 +419,8 @@ class Gameboy(config: Gameboy.Configuration) extends Module {
       peripheral.dataWrite := io.saveState.regDataWrite
     } .otherwise {
       peripheral.address := cpu.io.memAddress(7, 0)
-      peripheral.enabled := peripheralSelect && cpu.io.memEnable
-      peripheral.write := cpu.io.memWrite && clockControl.io.clocker.phiPulse
+      peripheral.enabled := peripheralSelect && cpu.io.memEnable && !cpuSuspended
+      peripheral.write := cpu.io.memWrite && cpu.io.clocker.phiPulse
       peripheral.dataWrite := cpu.io.memDataOut
     }
   }
@@ -417,5 +446,7 @@ object Gameboy {
     skipBootrom: Boolean,
     /** Whether to optimize for simulation, at the cost of potentially breaking synthesis. */
     optimizeForSimulation: Boolean = false,
+    /** Module-clock cycles, independent of CPU double speed and clock enable. */
+    wirelessGuardCycles: Int = 4 * 8388608,
   )
 }

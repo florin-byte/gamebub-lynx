@@ -39,6 +39,10 @@ impl CoreManager {
         if self.stage != Stage::Running {
             return;
         }
+        if !crate::link::states_allowed() {
+            notify("Turn off Wireless link first".to_string());
+            return;
+        }
         let info = self
             .core_info
             .as_ref()

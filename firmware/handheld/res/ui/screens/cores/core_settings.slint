@@ -4,45 +4,39 @@ import { ListViewBase } from "../../components/list_view.slint";
 import { CoreSetting, CoreSettingType } from "types.slint";
 import { Icons } from "../../icons.slint";
 import { ListView } from "std-widgets.slint";
+import { ScrollingText } from "../../components/scrolling_text.slint";
+import { OutlinedText, OutlinedImage, OutlinedFrame } from "../../components/outline.slint";
 
+// Drawn over the darkened game, like the Cheats page (see OverlayColors in game.slint).
+global SettingsColors {
+    out property <color> text: white;
+}
+
+// GB-173: the box is as wide as the current choice (not the widest one), and the arrows take
+// space only while the row is selected, so the setting's label keeps as much room as possible.
 component ListBox {
     in-out property <int> index;
     in property <[string]> choices;
     in property <bool> focused;
-
-    private property <length> item-height: i-area.viewport-height / choices.length;
 
     callback on-changed();
 
     HorizontalLayout {
         spacing: 2px;
 
-        Image {
+        if root.focused: OutlinedImage {
             source: Icons.left-caret;
-            visible: focused;
-            colorize: Theme.text;
+            tint: SettingsColors.text;
         }
 
-        i-area := Flickable {
-            viewport-y: -root.item-height * root.index;
-            viewport-height: i-items.min-height;
-            height: item-height;
-            width: i-items.min-width;
-
-            i-items := VerticalLayout {
-                width: self.min-width;
-                for choice[i] in root.choices: child-items := Text {
-                    color: Theme.fg;
-                    text: choice;
-                    horizontal-alignment: right;
-                }
-            }
+        OutlinedText {
+            text-color: SettingsColors.text;
+            text: root.index >= 0 && root.index < root.choices.length ? root.choices[root.index] : "";
         }
 
-        Image {
+        if root.focused: OutlinedImage {
             source: Icons.right-caret;
-            visible: focused;
-            colorize: Theme.text;
+            tint: SettingsColors.text;
         }
     }
 
@@ -73,11 +67,12 @@ export component CoreSettingListItem {
     in-out property <CoreSetting> item;
     in property <bool> selected;
 
-    i-highlight := Rectangle {
-        width: root.width;
-        height: root.height;
-        border-width: 1px;
-        border-color: selected ? Theme.border : transparent;
+    if selected: OutlinedFrame {
+        x: 1px;
+        y: 1px;
+        width: root.width - 2px;
+        height: root.height - 2px;
+        line-color: SettingsColors.text;
     }
 
     // i-popup := PopupWindow {
@@ -134,40 +129,59 @@ export component CoreSettingListItem {
         }
     }
 
-    min-width: i-text.min-width;
-    min-height: i-text.min-height + 2px;
+    // GB-173: the label gets the width left of the value, elided, and scrolls while its row is
+    // selected. Only the height comes from the text: the list gives the row its width, and nothing
+    // read by the layout may depend on that width (see ScrollingText).
+    private property <length> value-left: item.type == CoreSettingType.list
+        ? i-list.x
+        : item.type == CoreSettingType.checkbox ? root.width - (root.height - 4px) - 4px : root.width - 4px;
 
-    i-text := Text {
-        color: Theme.fg;
+    // The rows are 20 px high (CoreSettingListBase).
+    min-height: 20px;
+
+    // GB-174: an outlined elided label on the rows, the scrolling one only on the selected row.
+    if !root.selected: OutlinedText {
         x: 4px;
+        width: max(0px, root.value-left - self.x - 6px);
+        height: root.height;
         text: item.label;
-        vertical-alignment: center;
-        horizontal-alignment: left;
-        overflow: elide;
+        text-color: SettingsColors.text;
+        elide: true;
+    }
+    if root.selected: ScrollingText {
+        x: 4px;
+        width: max(0px, root.value-left - self.x - 6px);
+        text: item.label;
+        active: true;
+        text-color: SettingsColors.text;
+        outline: true;
     }
 
     if item.type == CoreSettingType.checkbox: Rectangle {
-        background: Theme.surface;
         x: parent.width - self.width - 4px;
         width: self.height;
         height: parent.height - 4px;
-        border-color: Theme.border;
-        border-width: 1px;
+
+        OutlinedFrame {
+            line-color: SettingsColors.text;
+        }
 
         if (item.value != 0): Rectangle {
             x: 2px;
             y: 2px;
             width: parent.width - 4px;
             height: parent.height - 4px;
-            background: Theme.text-dim;
+            background: SettingsColors.text;
         }
     }
 
-    if item.type == CoreSettingType.list: ListBox {
+    // Always present (empty and hidden for other types), so the label can read its position.
+    i-list := ListBox {
+        visible: item.type == CoreSettingType.list;
         x: parent.width - self.width - 4px;
         index: item.value;
-        choices: item.choices;
-        focused: root.selected;
+        choices: item.type == CoreSettingType.list ? item.choices : [];
+        focused: root.selected && item.type == CoreSettingType.list;
         on-changed => {
             item.value = self.index;
             Backend.game-settings-set(item.id, item.value);

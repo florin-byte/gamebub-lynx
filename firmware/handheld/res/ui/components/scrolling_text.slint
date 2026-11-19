@@ -1,4 +1,5 @@
 import { Theme } from "../theme.slint";
+import { OutlineFont } from "outline.slint";
 // A single line of text that is elided when it doesn't fit, and scrolls horizontally while
 // `active` is true (e.g. for the selected item of a list). Only the active item animates, so the
 // redraw is limited to that line.
@@ -14,6 +15,8 @@ export component ScrollingText inherits Rectangle {
     in property <brush> text-color: Theme.fg;
     // Alignment of the text while it isn't scrolling.
     in property <TextHorizontalAlignment> align: TextHorizontalAlignment.left;
+    // A 1 px black outline under the text (GB-173: the in-game menu over the game). Off by default.
+    in property <bool> outline: false;
 
     // Pixels moved per step, and the number of steps to wait at each end.
     private property <length> step: 1px;
@@ -40,6 +43,33 @@ export component ScrollingText inherits Rectangle {
         color: Theme.fg;
         text: root.text;
         visible: false;
+    }
+
+    // Outline copies, positioned from the laid-out text. The moving copy has the same height and
+    // vertical position, and its natural width (like the moving text below).
+    // One pixel wider on each side, except when the text is elided (the same cut as the text).
+    if root.outline && !root.moved: Text {
+        x: i-text.x - 1px;
+        y: i-text.y;
+        width: root.overflow > 0px ? i-text.width : i-text.width + 2px;
+        height: i-text.height;
+        text: root.text;
+        font-family: OutlineFont.family;
+        color: black;
+        vertical-alignment: center;
+        horizontal-alignment: root.align;
+        overflow: elide;
+    }
+    if root.outline && root.moved: Text {
+        x: -root.offset - 1px;
+        y: i-text.y;
+        width: i-measure.preferred-width + 2px;
+        height: i-text.height;
+        text: root.text;
+        font-family: OutlineFont.family;
+        color: black;
+        vertical-alignment: center;
+        horizontal-alignment: left;
     }
 
     // The text as laid out: elided, hidden while the scrolling copy is shown.
