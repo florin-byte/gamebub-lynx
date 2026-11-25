@@ -9,6 +9,17 @@ firmware and the scripts to build it.
 
 If you only want to play, take the zip from the [releases](../../releases), you don't need to build anything.
 
+## Update v0.3.2 (25 Nov 2026)
+
+- The release zip now has the core folder at its root, `cores/Retro-Bub.Lynx/`, which is what the Game Bub core
+  directory ([cores.gamebub.net](https://cores.gamebub.net)) reads: copy `cores/Retro-Bub.Lynx` to the `cores`
+  folder of your SD card. The files for my firmware (on-demand save states) are in the same zip under
+  `retrobub-firmware/cores/Retro-Bub.Lynx/`. Thanks to Eli for the report.
+- `core.json` says the real version (`0.3.2`); it had stayed at `0.1.0`.
+- `min_firmware` (`1.0.3`) is in `core.json` since v0.3.1: newer stock firmware refuses a core without it.
+
+The bitstreams are the same as before, only the packaging changed.
+
 ## Update of 19 Nov 2026
 
 - The core is now built on Eli's beta4 framework (1.1.0-beta4), so gamepads through the dock work with beta4.

@@ -4,7 +4,7 @@
 		"id": "Retro-Bub.Lynx",
 		"name": "Atari Lynx",
 		"author": "MiSTer, Florin",
-		"version": "0.1.0",
+		"version": "0.3.2",
 		"license": "GPL-2.0"
 	},
 	"bitstreams": [
