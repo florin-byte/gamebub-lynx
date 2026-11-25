@@ -9,6 +9,11 @@ firmware and the scripts to build it.
 
 If you only want to play, take the zip from the [releases](../../releases), you don't need to build anything.
 
+## Update v0.3.3 (25 Nov 2026)
+
+- `core.json` has a short description and the release date, which the Game Bub core directory shows next to
+  the core. Nothing else changed.
+
 ## Update v0.3.2 (25 Nov 2026)
 
 - The release zip now has the core folder at its root, `cores/Retro-Bub.Lynx/`, which is what the Game Bub core

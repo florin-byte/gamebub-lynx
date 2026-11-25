@@ -4,7 +4,9 @@
 		"id": "Retro-Bub.Lynx",
 		"name": "Atari Lynx",
 		"author": "MiSTer, Florin",
-		"version": "0.3.2",
+		"version": "0.3.3",
+		"description": "MiSTer Atari Lynx port with save states, CPU/GPU Turbo, Rewind and screen rotation",
+		"release_date": "2026-11-25",
 		"license": "GPL-2.0"
 	},
 	"bitstreams": [
