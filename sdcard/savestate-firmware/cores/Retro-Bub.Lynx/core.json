@@ -1,4 +1,5 @@
 {
+	"min_firmware": "1.0.3",
 	"metadata": {
 		"id": "Retro-Bub.Lynx",
 		"name": "Atari Lynx",
